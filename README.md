@@ -58,7 +58,8 @@ Key Features to Implement
 Weekly planning for the team:
 
 
-1   
+week 1:
+
     + Build Pong + tournament logic +            (Mandatory Part)
 
     * Setup Fastify base *                       (Framework Module - Major)
