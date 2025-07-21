@@ -58,29 +58,47 @@ Key Features to Implement
 Weekly planning for the team:
 
 
-1   + Build Pong + tournament logic +                  (Mandatory Part)
-    * Setup Fastify base *                             (Framework Module - Major)
-    - Setup SPA routing, UI skeleton -                 (Frontend Setup / Tailwind - Minor if applicable)
+1   + Build Pong + tournament logic +            (Mandatory Part)
 
-2   + Add tournament matchmaking +                     (Mandatory Part)
-    * DB schema, REST API, bcrypt *                    (Standard User Management - Major)
-    - Forms + connect to API -                         (Standard User Management - Major)
+    * Setup Fastify base *                       (Framework Module - Major)
 
-3   + AI opponent base +                               (AI Opponent - Major)
-    * JWT + 2FA auth, secure routes *                  (2FA + JWT - Major)
-    - Auth UI, profile, dashboard -                    (Standard User Management - Major)
+    - Setup SPA routing, UI skeleton -           (Frontend Setup / Tailwind - Minor if applicable)
 
-4   + WebSocket: Remote Players and websync +          (Remote Players - Major)
-    * WS server for games + chat *                     (Remote Players + Live Chat - Major)
-    - WS client, game + chat interface -               (Remote Players + Live Chat - Major)
 
-5   + Move Pong logic server-side +                    (Server-Side Pong + API - Major)
-    * Game state API + CLI extension *                 (Server-Side Pong + API - Major)
-    - Refactor frontend to use API -                   (Server-Side Pong - Major)
+2   + Add tournament matchmaking +               (Mandatory Part)
 
-6   + Polish UX, mobile fixes +                        (Accessibility: Support on all devices - Minor)
-    * Cleanup, final testing *                         (General / Mandatory polish)
-    - Polish UI, fix edge cases -                      (Accessibility + UX improvements)
+    * DB schema, REST API, bcrypt *              (Standard User Management - Major)
+
+    - Forms + connect to API -                   (Standard User Management - Major)
+
+
+3   + AI opponent base +                         (AI Opponent - Major)
+
+    * JWT + 2FA auth, secure routes *            (2FA + JWT - Major)
+
+    - Auth UI, profile, dashboard -              (Standard User Management - Major)
+
+
+4   + WebSocket: Remote Players and websync +    (Remote Players - Major)
+
+    * WS server for games + chat *               (Remote Players + Live Chat - Major)
+
+    - WS client, game + chat interface -         (Remote Players + Live Chat - Major)
+
+
+5   + Move Pong logic server-side +              (Server-Side Pong + API - Major)
+
+    * Game state API + CLI extension *           (Server-Side Pong + API - Major)
+
+    - Refactor frontend to use API -             (Server-Side Pong - Major)
+
+
+6   + Polish UX, mobile fixes +                  (Accessibility: Support on all devices - Minor)
+
+    * Cleanup, final testing *                   (General / Mandatory polish)
+
+    - Polish UI, fix edge cases -                (Accessibility + UX improvements)
+    
 
 
 Modules
