@@ -76,7 +76,8 @@ week 2:
     - Forms + connect to API -                   (Standard User Management - Major)
 
 
-week 3:  
+week 3:
+
     + AI opponent base +                         (AI Opponent - Major)
 
     * JWT + 2FA auth, secure routes *            (2FA + JWT - Major)
@@ -84,7 +85,8 @@ week 3:
     - Auth UI, profile, dashboard -              (Standard User Management - Major)
 
 
-week 4:   
+week 4:
+
     + WebSocket: Remote Players and websync +    (Remote Players - Major)
 
     * WS server for games + chat *               (Remote Players + Live Chat - Major)
@@ -92,7 +94,8 @@ week 4:
     - WS client, game + chat interface -         (Remote Players + Live Chat - Major)
 
 
-week 5:   
+week 5:
+
     + Move Pong logic server-side +              (Server-Side Pong + API - Major)
 
     * Game state API + CLI extension *           (Server-Side Pong + API - Major)
@@ -100,7 +103,8 @@ week 5:
     - Refactor frontend to use API -             (Server-Side Pong - Major)
 
 
-week 6:   
+week 6:
+
     + Polish UX, mobile fixes +                  (Accessibility: Support on all devices - Minor)
 
     * Cleanup, final testing *                   (General / Mandatory polish)
