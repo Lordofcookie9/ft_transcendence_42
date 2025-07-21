@@ -5,7 +5,7 @@ This is the last common core 42 school project
 
 Made by :
     
-    * Judith *
+    + Judith +
       Yulin
 
 Goal
