@@ -1,36 +1,13 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Transcendance</title>
-  <link href="tailwind.css" rel="stylesheet">
+  <link href="/tailwind.css" rel="stylesheet" />
 </head>
-<body class="h-full m-0 bg-gray-100">
-  <main class="flex h-full items-center justify-center">
-    <div class="text-center space-y-6">
-      <h1 class="text-5xl font-bold text-gray-800">Transcendance</h1>
-      <div>
-        <h2 class="text-3xl mb-4">Count: <span id="count">0</span></h2>
-        <button id="btn" class="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
-          Increment
-        </button>
-      </div>
-    </div>
-  </main>
-
-  <script>
-    async function update() {
-      const res = await fetch('/api/count');
-      const data = await res.json();
-      document.getElementById('count').textContent = data.count;
-    }
-
-    document.getElementById('btn').onclick = async () => {
-      await fetch('/api/increment', { method: 'POST' });
-      update();
-    };
-
-    update();
-  </script>
+<body class="bg-gray-100">
+  <div id="app"></div>
+  <script type="module" src="/main.js"></script>
 </body>
 </html>
