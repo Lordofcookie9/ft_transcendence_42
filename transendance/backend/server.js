@@ -62,3 +62,13 @@ fastify.listen({ port: 443, host: '0.0.0.0' }, (err, address) => {
   }
   fastify.log.info(`Server running at ${address}`);
 });
+
+// Graceful shutdown support
+const closeGracefully = async (signal) => {
+  fastify.log.info(`Received ${signal}. Closing Fastify...`);
+  await fastify.close();
+  process.exit(0);
+};
+
+process.on('SIGINT', closeGracefully);  // Ctrl+C
+process.on('SIGTERM', closeGracefully); // docker stop

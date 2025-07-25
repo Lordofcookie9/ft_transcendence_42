@@ -1,18 +1,26 @@
+# Base image
 FROM node:20
 
+# Install tini for proper signal handling (e.g. Ctrl+C)
+RUN apt-get update && apt-get install -y tini
+
+# Set tini as the init system
+ENTRYPOINT ["/usr/bin/tini", "--"]
+
+# Set working directory
 WORKDIR /app
 
-# Copy everything
+# Copy source files
 COPY backend ./backend
 COPY frontend ./frontend
 COPY cert ./cert
 COPY db ./db
 
-# Install backend dependencies
+# Move into backend and install dependencies
 WORKDIR /app/backend
 RUN npm install
 
-# Build Tailwind from backend (where tailwind is installed)
+# Build Tailwind CSS (input -> output)
 RUN npx tailwindcss -i ../frontend/input.css -o ../frontend/tailwind.css --minify
 
 # Expose HTTPS port
