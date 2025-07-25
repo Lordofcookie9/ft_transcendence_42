@@ -1,13 +1,3 @@
-.PHONY: build up down restart
-
-build:
-	docker compose build
-
-up:
-	docker compose up
-
-down:
-	docker compose down
-
-restart:
-	docker compose down && docker compose up --build
+all:
+	docker build -t transcendence .
+	docker run -p 443:443 -v $(PWD)/db:/app/db transcendence

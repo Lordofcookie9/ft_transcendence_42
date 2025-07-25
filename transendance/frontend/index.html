@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Counter App</title>
+  <link href="/tailwind.css" rel="stylesheet">
+</head>
+<body class="flex items-center justify-center h-screen bg-gray-100">
+  <div class="text-center">
+    <h1 class="text-4xl mb-4">Count: <span id="count">0</span></h1>
+    <button id="btn" class="px-4 py-2 bg-blue-500 text-white rounded">Increment</button>
+  </div>
+
+  <script>
+    async function update() {
+      const res = await fetch('/api/count');
+      const data = await res.json();
+      document.getElementById('count').textContent = data.count;
+    }
+
+    document.getElementById('btn').onclick = async () => {
+      await fetch('/api/increment', { method: 'POST' });
+      update();
+    };
+
+    update();
+  </script>
+</body>
+</html>
