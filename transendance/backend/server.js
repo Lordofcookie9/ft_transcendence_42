@@ -6,9 +6,11 @@ import staticPlugin from '@fastify/static';
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 
+// Path helpers
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Fastify HTTPS instance
 const fastify = Fastify({
   logger: true,
   https: {
@@ -17,17 +19,21 @@ const fastify = Fastify({
   },
 });
 
+// SQLite init
 const dbPromise = open({
   filename: path.join(__dirname, '../db/database.sqlite'),
   driver: sqlite3.Database,
 });
 
+// Serve frontend statically
 fastify.register(staticPlugin, {
   root: path.join(__dirname, '../frontend'),
   prefix: '/',
 });
 
-// API to get counter by id
+// --- REST API ---
+
+// Get counter by ID
 fastify.get('/api/count', async (request, reply) => {
   const id = Number(request.query.id || 1);
   const db = await dbPromise;
@@ -35,7 +41,7 @@ fastify.get('/api/count', async (request, reply) => {
   reply.send({ count: row?.value || 0 });
 });
 
-// API to increment counter by id
+// Increment counter by ID
 fastify.post('/api/increment', async (request, reply) => {
   const id = Number(request.query.id || 1);
   const db = await dbPromise;
@@ -44,12 +50,49 @@ fastify.post('/api/increment', async (request, reply) => {
   reply.send({ count: row.value });
 });
 
+// --- Chat logic ---
 
-// DB Setup
+let messages = []; // In-memory store
+
+// Get chat messages
+fastify.get('/api/chat', async (req, reply) => {
+  reply.send(messages);
+});
+
+// Post a chat message
+fastify.post('/api/chat', async (req, reply) => {
+  const { alias, message } = req.body;
+
+  if (
+    !alias ||
+    !message ||
+    typeof alias !== 'string' ||
+    typeof message !== 'string' ||
+    message.length > 2000
+  ) {
+    return reply.status(400).send({ error: 'Invalid message' });
+  }
+
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const formatted = `(${time}) ${alias}: ${message}`;
+
+  messages.push(formatted);
+  if (messages.length > 100) messages.shift();
+
+  reply.send({ success: true });
+});
+
+// --- SPA fallback (handle /home, /other refresh) ---
+fastify.setNotFoundHandler((request, reply) => {
+  reply.type('text/html').send(fs.readFileSync(path.join(__dirname, '../frontend/index.html')));
+});
+
+
+// --- Database setup ---
 fastify.ready().then(async () => {
   const db = await dbPromise;
   await db.exec('CREATE TABLE IF NOT EXISTS counter (id INTEGER PRIMARY KEY, value INTEGER)');
-  
+
   const row1 = await db.get('SELECT * FROM counter WHERE id = 1');
   if (!row1) await db.run('INSERT INTO counter (id, value) VALUES (1, 0)');
 
@@ -57,7 +100,7 @@ fastify.ready().then(async () => {
   if (!row2) await db.run('INSERT INTO counter (id, value) VALUES (2, 0)');
 });
 
-// Start Server
+// --- Start server ---
 fastify.listen({ port: 443, host: '0.0.0.0' }, (err, address) => {
   if (err) {
     fastify.log.error(err);
@@ -66,11 +109,12 @@ fastify.listen({ port: 443, host: '0.0.0.0' }, (err, address) => {
   fastify.log.info(`Server running at ${address}`);
 });
 
-// Graceful shutdown
+// --- Graceful shutdown ---
 const closeGracefully = async (signal) => {
   fastify.log.info(`Received ${signal}. Closing Fastify...`);
   await fastify.close();
   process.exit(0);
 };
+
 process.on('SIGINT', closeGracefully);
 process.on('SIGTERM', closeGracefully);
