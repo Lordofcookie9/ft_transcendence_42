@@ -1,5 +1,8 @@
+// Unified main.ts — full SPA routing in TypeScript
+
+const app = document.getElementById('app');
+
 function setContent(html: string) {
-  const app = document.getElementById('app');
   if (app) app.innerHTML = html;
 }
 
@@ -8,109 +11,194 @@ function route(path: string) {
   handleLocation();
 }
 
+window.addEventListener('popstate', handleLocation);
+
+type RouteMap = { [path: string]: () => void };
+
+const routes: RouteMap = {
+  '/': renderEntryPage,
+  '/home': renderHome,
+  '/login': renderLogin,
+  '/register': renderRegister,
+  '/profile': renderProfile,
+  '/play': renderGame,
+  '/chat': renderChat,
+  '/main': renderMain, // optional extra screen if needed
+};
+
 function handleLocation() {
   const path = window.location.pathname;
   const page = routes[path] || renderNotFound;
   page();
 }
 
-const profileBtn = document.createElement('button');
-profileBtn.textContent = 'User Profile';
-profileBtn.className = 'absolute top-4 left-4 text-sm text-gray-600 z-10';
-profileBtn.onclick = () => route('/profile');
-document.body.appendChild(profileBtn);
-
-
-type RouteMap = { [path: string]: () => void };
-
-const routes: RouteMap = {
-  '/': renderHome,
-  '/login': renderLogin,
-  '/register': renderRegister,
-  '/profile': renderProfile,
-  '/play': renderGame,
-};
-
-function renderHome() {
+// --- Entry Page (landing) ---
+function renderEntryPage() {
   setContent(`
-    <div class="text-center mt-10">
-      <h1 class="text-2xl font-bold">Welcome Visitor</h1>
-      <button onclick="route('/login')" class="m-2 bg-blue-500 text-white px-4 py-2 rounded">Login</button>
+    <div class="flex flex-col items-center justify-center h-screen space-y-6">
+      <h1 class="text-4xl font-bold">Welcome to Transcendence</h1>
+      <div class="space-y-4">
+        <button class="bg-gray-600 text-white px-6 py-3 rounded opacity-50 cursor-not-allowed" disabled>Create Account</button>
+        <button class="bg-gray-600 text-white px-6 py-3 rounded opacity-50 cursor-not-allowed" disabled>Login</button>
+        <button onclick="window.enterVisitor()" class="bg-blue-500 text-white px-6 py-3 rounded hover:bg-blue-600">Visitor</button>
+      </div>
     </div>
   `);
 }
 
-function renderLogin() {
+// --- Main Homepage ---
+function renderHome() {
+  const alias = localStorage.getItem("alias") || "Guest";
   setContent(`
-    <h1 class="text-xl font-bold">Login</h1>
-    <form id="login-form" class="flex flex-col gap-2 mt-4">
-      <input type="email" name="email" placeholder="Email" class="p-2 border" />
-      <input type="password" name="password" placeholder="Password" class="p-2 border" />
-      <button type="submit" class="bg-blue-600 text-white px-4 py-2">Submit</button>
-      <button onclick="route('/register')" class="m-2 bg-green-500 text-white px-4 py-2 rounded">Create Account</button>
-    </form>
+    <!-- Floating Chat Box -->
+    <div class="fixed top-4 right-4 w-80 max-w-full sm:w-72 bg-gray-800 text-white rounded shadow-lg z-50 text-sm sm:text-base">
+      <div class="p-2 border-b border-gray-700 font-semibold">Chat Room</div>
+      <div id="chatBox" class="p-2 h-60 sm:h-52 overflow-y-auto text-sm break-words"></div>
+      <div class="p-2 flex gap-1">
+      <input id="messageInput" placeholder="Message" class="flex-1 px-2 py-1 rounded text-black"
+        onkeydown="if(event.key === 'Enter'){ submitMessage(); }" />
+          <button onclick="submitMessage()" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded">Send</button>
+    </div>
+  </div>
+
+    <!-- Main Page -->
+    <div class="flex justify-between items-start p-4">
+      <a href="/profile" onclick="route('/profile')" class="text-gray-400 hover:text-white">User Profile</a>
+    </div>
+
+    <div class="flex flex-col items-center mt-10 space-y-10">
+      <h1 class="text-4xl font-bold">Transcendence</h1>
+
+      <div class="flex space-x-16">
+        <div class="text-center">
+          <h2 class="text-xl font-semibold mb-2">2 Player</h2>
+          <div class="flex space-x-4 justify-center">
+            <button class="bg-gray-600 text-white px-4 py-2 rounded opacity-50 cursor-not-allowed">Local</button>
+            <button class="bg-gray-600 text-white px-4 py-2 rounded opacity-50 cursor-not-allowed">Online</button>
+          </div>
+        </div>
+
+        <div class="text-center">
+          <h2 class="text-xl font-semibold mb-2">Tournament (up to 8 players)</h2>
+          <button class="bg-gray-600 text-white px-4 py-2 rounded opacity-50 cursor-not-allowed">Local</button>
+        </div>
+      </div>
+    </div>
   `);
 
-  document.getElementById('login-form')!.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    // Call backend API via fetch()
+  updateChatBox();
+  setInterval(updateChatBox, 3000);
+}
+
+
+// Visitor login logic
+(window as any).enterVisitor = () => {
+  const alias = prompt("Enter your alias (nickname):");
+  if (!alias || alias.trim().length === 0) return;
+  localStorage.setItem("alias", alias.trim());
+  route("/home");
+};
+
+// --- API Helpers ---
+async function getCount(id: string): Promise<number> {
+  const res = await fetch(`/api/count?id=${id}`);
+  const data = await res.json();
+  return data.count;
+}
+
+async function incrementCount(id: string): Promise<number> {
+  const res = await fetch(`/api/increment?id=${id}`, { method: 'POST' });
+  const data = await res.json();
+  return data.count;
+}
+
+async function getMessages(): Promise<any[]> {
+  const res = await fetch('/api/chat');
+  return await res.json();
+}
+
+async function sendMessage(alias: string, message: string): Promise<any> {
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ alias, message })
   });
+  return await res.json();
+}
+
+// --- Page Stubs ---
+function renderLogin() {
+  setContent('<div class="p-4">Login Page (WIP)</div>');
 }
 
 function renderRegister() {
-  setContent(`
-    <h1>Create Account</h1>
-    <form id="register-form" class="flex flex-col gap-2 mt-4">
-      <input name="public name" type="text" placeholder="Public Name" required class="p-2 border" />
-      <input name="email" type="email" placeholder="Email" required class="p-2 border" />
-      <input name="password" type="password" placeholder="Password" required class="p-2 border" />
-       <button type="submit" class="bg-green-600 text-white px-4 py-2">Register</button>
-    </form>
-  `);
-
-  const form = document.getElementById('register-form')!;
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    const formData = new FormData(form as HTMLFormElement);
-    const payload = {
-      email: formData.get('email'),
-      password: formData.get('password'),
-      display_name: formData.get('display_name')
-    };
-
-    const res = await fetch('/api/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    if (res.ok) {
-      alert('Account created!');
-      route('/login');
-    } else {
-      const msg = await res.text();
-      alert('Error: ' + msg);
-    }
-  });
+  setContent('<div class="p-4">Register Page (WIP)</div>');
 }
 
 function renderProfile() {
-  setContent(`<h1>Profile Page</h1>`);
+  setContent('<div class="p-4">User Profile (WIP)</div>');
 }
 
 function renderGame() {
-  setContent(`<h1>Game Screen</h1><canvas id="pong"></canvas>`);
+  setContent('<div class="p-4">Game Placeholder (WIP)</div>');
+}
+
+function renderMain() {
+  const alias = localStorage.getItem("alias") || "Guest";
+  setContent(`<div class="p-10 text-center text-white text-xl">Main Page — Welcome ${alias}</div>`);
 }
 
 function renderNotFound() {
-  setContent(`<h1 class="text-red-600 text-2xl">404 - Page Not Found</h1>`);
+  setContent('<div class="p-10 text-red-500 text-xl">404: Page not found</div>');
 }
 
-window.onpopstate = handleLocation;
+// --- Chat ---
+function renderChat() {
+  setContent(`
+    <div class="p-4">
+      <h2 class="text-xl font-semibold mb-2">Chat Room</h2>
+      <div id="chatBox" class="border rounded p-2 mb-2 h-60 overflow-y-auto"></div>
+      <input id="alias" placeholder="Alias" class="border p-1 mr-1" />
+      <input id="message" placeholder="Message" class="border p-1 mr-1" />
+      <button class="bg-blue-500 text-white px-2 py-1" onclick="submitMessage()">Send</button>
+    </div>
+  `);
+  updateChatBox();
+}
 
-// Attach to window if needed
+async function updateChatBox() {
+  const chatBox = document.getElementById('chatBox');
+  if (!chatBox) return;
+
+  const messages = await getMessages();
+  chatBox.innerHTML = messages.map(msg => {
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return `<div><span class="text-gray-400">[${timestamp}]</span> <strong>${msg.alias}</strong>: ${msg.message}</div>`;
+  }).join('');
+
+  // Auto-scroll to bottom
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+// Global bindings
 (window as any).route = route;
+(window as any).submitMessage = async function () {
+  const alias = (document.getElementById('alias') as HTMLInputElement)?.value;
+  const message = (document.getElementById('message') as HTMLInputElement)?.value;
+  if (!alias || !message) return;
+  await sendMessage(alias, message);
+  updateChatBox();
+};
 
+(window as any).submitMessage = async function () {
+  const alias = localStorage.getItem("alias") || "Anonymous";
+  const input = document.getElementById('messageInput') as HTMLInputElement;
+  const message = input?.value.trim();
+  if (!message) return;
+  await sendMessage(alias, message);
+  input.value = '';
+  updateChatBox();
+};
 
+// --- Initialize ---
 handleLocation();

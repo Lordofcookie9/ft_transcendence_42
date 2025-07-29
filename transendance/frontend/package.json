@@ -1,11 +1,13 @@
 {
-  "name": "frontend",
+  "name": "transcendence-frontend",
   "version": "1.0.0",
   "scripts": {
-    "build": "tsc && npx tailwindcss -i ./input.css -o ./tailwind.css --minify"
+    "build": "npm run build:ts && npm run build:css",
+    "build:ts": "tsc",
+    "build:css": "npx tailwindcss -i ./input.css -o ./tailwind.css --minify"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "tailwindcss": "^3.4.17"
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.4.0"
   }
 }

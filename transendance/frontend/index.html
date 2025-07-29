@@ -1,16 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Transcendance</title>
-  <link rel="stylesheet" href="/tailwind.css" />
-</head>
-<body class="bg-gray-100 text-gray-900 font-sans min-h-screen">
-  <div id="app" class="flex justify-center items-center min-h-screen px-4">
-    <!-- SPA content injected here -->
-  </div>
-
-  <script type="module" src="/dist/main.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Transcendence</title>
+    <link href="/tailwind.css" rel="stylesheet" />
+    <script>
+      // Prevent page reloads on links
+      window.addEventListener("click", (e) => {
+        const target = e.target as HTMLElement;
+        if (target.tagName === "A" && target.hasAttribute("data-link")) {
+          e.preventDefault();
+          const href = target.getAttribute("href");
+          if (href && window.route) {
+            window.route(href);
+          }
+        }
+      });
+    </script>
+  </head>
+  <body class="bg-gray-900 text-white">
+    <div id="app" class="p-4"></div>
+    <script type="module" src="/dist/main.js"></script>
+  </body>
 </html>
