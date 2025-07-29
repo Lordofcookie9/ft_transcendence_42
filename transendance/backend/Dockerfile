@@ -1,36 +1,42 @@
-# ========================
 # Stage 1: Build frontend
-# ========================
-FROM node:20 AS builder
+FROM node:20 AS frontend-builder
 
 WORKDIR /app/frontend
 
-COPY frontend/package.json ./
+# Install frontend dependencies
+COPY frontend/package.json ./ 
 RUN npm install
 
+# Copy source files
 COPY frontend/ ./
-RUN npm run build
+COPY backend/tailwind.config.js ../backend/tailwind.config.js
 
-# ========================
-# Stage 2: Backend + serve frontend
-# ========================
+# Build Tailwind CSS (no tailwind.config.js used)
+RUN npx tailwindcss -i ./input.css -o ./tailwind.css --config ../backend/tailwind.config.js --minify
+
+# Transpile TypeScript manually
+RUN npx tsc
+
+# Stage 2: Backend container
 FROM node:20
 
 WORKDIR /app
 
-# Copy backend source
-COPY backend/ ./
-
-# Copy HTTPS certs
-COPY cert/ ./cert/
-
-# Copy built frontend files from builder stage
-COPY --from=builder /app/frontend/dist ./public/dist
-COPY --from=builder /app/frontend/index.html ./public/index.html
-COPY --from=builder /app/frontend/tailwind.css ./public/tailwind.css
-
+# Install backend dependencies
+COPY backend/package.json ./
 RUN npm install
 
+# Copy backend and certs
+COPY backend/ ./
+COPY cert/ ./cert/
+COPY backend/tailwind.config.js ./backend/tailwind.config.js
+
+# Copy built frontend output
+COPY --from=frontend-builder /app/frontend/index.html ./public/index.html
+COPY --from=frontend-builder /app/frontend/tailwind.css ./public/tailwind.css
+COPY --from=frontend-builder /app/frontend/main.js ./public/main.js
+
+# Expose HTTPS port
 EXPOSE 443
 
 CMD ["node", "server.js"]

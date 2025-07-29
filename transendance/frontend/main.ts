@@ -18,6 +18,7 @@ type RouteMap = { [path: string]: () => void };
 const routes: RouteMap = {
   '/': renderEntryPage,
   '/home': renderHome,
+  '/local': renderLocal1v1,
   '/login': renderLogin,
   '/register': renderRegister,
   '/profile': renderProfile,
@@ -35,17 +36,30 @@ function handleLocation() {
 // --- Entry Page (landing) ---
 function renderEntryPage() {
   setContent(`
-    <div class="flex flex-col items-center justify-center h-screen space-y-6">
-      <h1 class="text-4xl font-bold">Welcome to Transcendence</h1>
+    <div class="text-center mt-10 space-y-6">
+      <h1 class="text-3xl font-bold mb-6">Welcome to Transcendence</h1>
+
       <div class="space-y-4">
-        <button class="bg-gray-600 text-white px-6 py-3 rounded opacity-50 cursor-not-allowed" disabled>Create Account</button>
-        <button class="bg-gray-600 text-white px-6 py-3 rounded opacity-50 cursor-not-allowed" disabled>Login</button>
-        <button onclick="window.enterVisitor()" class="bg-blue-500 text-white px-6 py-3 rounded hover:bg-blue-600">Visitor</button>
+        <button onclick="route('/register')" class="bg-gray-600 text-white px-6 py-3 rounded hover:bg-gray-700">
+          Create Account
+        </button>
+        <button onclick="route('/login')" class="bg-gray-600 text-white px-6 py-3 rounded hover:bg-gray-700">
+          Login
+        </button>
+      </div>
+
+      <div class="mt-8 space-y-4">
+        <h2 class="text-lg font-semibold">Continue as Visitor</h2>
+        <input id="aliasInput" type="text" placeholder="Enter your alias"
+          class="border border-gray-400 px-4 py-2 rounded text-black" />
+        <br />
+        <button onclick="enterVisitor()" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded">
+          Continue
+        </button>
       </div>
     </div>
   `);
 }
-
 // --- Main Homepage ---
 function renderHome() {
   const alias = localStorage.getItem("alias") || "Guest";
@@ -73,7 +87,7 @@ function renderHome() {
         <div class="text-center">
           <h2 class="text-xl font-semibold mb-2">2 Player</h2>
           <div class="flex space-x-4 justify-center">
-            <button class="bg-gray-600 text-white px-4 py-2 rounded opacity-50 cursor-not-allowed">Local</button>
+            <button onclick="startLocalGame()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Local</button>
             <button class="bg-gray-600 text-white px-4 py-2 rounded opacity-50 cursor-not-allowed">Online</button>
           </div>
         </div>
@@ -93,12 +107,24 @@ function renderHome() {
 
 // Visitor login logic
 (window as any).enterVisitor = () => {
-  const alias = prompt("Enter your alias (nickname):");
-  if (!alias || alias.trim().length === 0) return;
-  localStorage.setItem("alias", alias.trim());
+  const input = document.getElementById("aliasInput") as HTMLInputElement;
+  const alias = input?.value.trim();
+  if (!alias) return;
+  localStorage.setItem("alias", alias);
   route("/home");
 };
 
+(window as any).startLocalGame = () => {
+  const p1 = localStorage.getItem("alias") || "Player 1";
+  const p2 = prompt("Enter Player 2 alias:");
+  if (!p2 || p2.trim().length === 0) return;
+
+  localStorage.setItem("p1", p1);
+  localStorage.setItem("p2", p2.trim());
+  localStorage.setItem("p1Score", "0");
+  localStorage.setItem("p2Score", "0");
+  route("/local");
+};
 // --- API Helpers ---
 async function getCount(id: string): Promise<number> {
   const res = await fetch(`/api/count?id=${id}`);
@@ -129,6 +155,26 @@ async function sendMessage(alias: string, message: string): Promise<any> {
 // --- Page Stubs ---
 function renderLogin() {
   setContent('<div class="p-4">Login Page (WIP)</div>');
+}
+
+function renderLocal1v1() {
+  const p1 = localStorage.getItem("p1") || "P1";
+  const p2 = localStorage.getItem("p2") || "P2";
+  const s1 = localStorage.getItem("p1Score") || "0";
+  const s2 = localStorage.getItem("p2Score") || "0";
+
+  setContent(`
+    <div class="text-center mt-10">
+      <h1 class="text-3xl font-bold mb-4">Local 1v1</h1>
+      <div class="flex justify-between items-center max-w-2xl mx-auto mb-6 text-xl font-semibold">
+        <span>${p1}: ${s1}</span>
+        <div class="w-64 h-40 border-2 border-white bg-black text-white flex items-center justify-center">
+          Pong Placeholder
+        </div>
+        <span>${p2}: ${s2}</span>
+      </div>
+    </div>
+  `);
 }
 
 function renderRegister() {
