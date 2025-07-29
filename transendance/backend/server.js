@@ -98,7 +98,58 @@ fastify.ready().then(async () => {
 
   const row2 = await db.get('SELECT * FROM counter WHERE id = 2');
   if (!row2) await db.run('INSERT INTO counter (id, value) VALUES (2, 0)');
+
+// SUM users table ===========================================
+
+  await db.exec('PRAGMA foreign_keys = ON;');
+
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      display_name TEXT UNIQUE NOT NULL,
+      avatar_url TEXT DEFAULT '/default-avatar.png',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      last_online TIMESTAMP,
+      account_status TEXT DEFAULT 'offline' CHECK (account_status IN ('active', 'online', 'offline', 'banned'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    CREATE INDEX IF NOT EXISTS idx_users_display_name ON users(display_name);
+  `);
 });
+
+
+fastify.post('/api/register', async (req, reply) => {
+  const { email, password, display_name } = req.body;
+
+  if (!email || !password || !display_name) {
+    return reply.code(400).send('Missing required fields');
+  }
+
+  const db = await dbPromise;
+  const hash = await bcrypt.hash(password, 10);
+
+  try {
+    await db.run(
+      `INSERT INTO users (email, password_hash, display_name)
+       VALUES (?, ?, ?)`,
+      [email, hash, display_name]
+    );
+
+    reply.code(201).send({ success: true });
+  } catch (err) {
+    if (err.message.includes('UNIQUE')) {
+      return reply.code(409).send('Email or display name already exists');
+    }
+
+    console.error(err);
+    reply.code(500).send('Internal server error');
+  }
+});
+
+//=========================================== end
 
 // --- Start server ---
 fastify.listen({ port: 443, host: '0.0.0.0' }, (err, address) => {

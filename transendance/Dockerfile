@@ -25,11 +25,13 @@ WORKDIR /app/backend
 RUN npm install
 RUN npm rebuild sqlite3
 
-# Build Tailwind CSS (input -> output)
-RUN npx tailwindcss -i ../frontend/input.css -o ../frontend/tailwind.css --minify
+WORKDIR /app/frontend
+RUN npm install
+RUN npm run build
 
 # Expose HTTPS port
 EXPOSE 443
 
+WORKDIR /app/backend
 # Start the Fastify server
 CMD ["npm", "start"]
