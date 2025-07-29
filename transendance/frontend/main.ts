@@ -154,9 +154,80 @@ async function sendMessage(alias: string, message: string): Promise<any> {
 
 // --- Page Stubs ---
 function renderLogin() {
-  setContent('<div class="p-4">Login Page (WIP)</div>');
+  setContent(`
+    <div class="max-w-md mx-auto mt-10 p-6 bg-gray-800 rounded-lg shadow">
+      <h1 class="text-xl font-bold mb-4">Login</h1>
+      <form id="login-form" class="flex flex-col gap-4">
+        <input type="email" name="email" placeholder="Email" class="p-2 border border-gray-600 rounded bg-gray-700 text-white" required />
+        <input type="password" name="password" placeholder="Password" class="p-2 border border-gray-600 rounded bg-gray-700 text-white" required />
+        <div class="flex gap-2">
+          <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full">Login</button>
+          <button type="button" onclick="window.route('/register')" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded w-full">Create Account</button>
+        </div>
+      </form>
+    </div>
+  `);
+
+  document.getElementById('login-form')!.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const form = e.target as HTMLFormElement;
+    const formData = new FormData(form);
+    const payload = {
+      email: formData.get('email'),
+      password: formData.get('password'),
+    };
+
+    // TODO: Implement actual login API call
+    console.log("Login payload", payload);
+    alert("Login not yet implemented.");
+  });
 }
 
+function renderRegister() {
+  setContent(`
+    <div class="max-w-md mx-auto mt-10 p-6 bg-gray-800 rounded-lg shadow">
+      <h1 class="text-xl font-bold mb-4">Create Account</h1>
+      <form id="register-form" class="flex flex-col gap-4">
+        <input name="display_name" type="text" placeholder="Public Name" required class="p-2 border border-gray-600 rounded bg-gray-700 text-white" />
+        <input name="email" type="email" placeholder="Email" required class="p-2 border border-gray-600 rounded bg-gray-700 text-white" />
+        <input name="password" type="password" placeholder="Password" required class="p-2 border border-gray-600 rounded bg-gray-700 text-white" />
+        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">Register</button>
+      </form>
+    </div>
+  `);
+
+  const form = document.getElementById('register-form')!;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const formData = new FormData(form as HTMLFormElement);
+    const payload = {
+      email: formData.get('email'),
+      password: formData.get('password'),
+      display_name: formData.get('display_name'),
+    };
+
+    try {
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        alert('Account created!');
+        route('/login');
+      } else {
+        const msg = await res.text();
+        alert('Error: ' + msg);
+      }
+    } catch (err) {
+      console.error("Registration error:", err);
+      alert("An error occurred during registration.");
+    }
+  });
+}
 function renderLocal1v1() {
   const p1 = localStorage.getItem("p1") || "P1";
   const p2 = localStorage.getItem("p2") || "P2";
@@ -177,9 +248,6 @@ function renderLocal1v1() {
   `);
 }
 
-function renderRegister() {
-  setContent('<div class="p-4">Register Page (WIP)</div>');
-}
 
 function renderProfile() {
   setContent('<div class="p-4">User Profile (WIP)</div>');
