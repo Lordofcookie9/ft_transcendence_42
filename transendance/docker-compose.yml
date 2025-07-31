@@ -3,11 +3,13 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    env_file:
+      - ./backend/.env
     ports:
       - "443:443"
     volumes:
       - ./cert:/app/cert
-      - ./backend:/app/backend
+      - ./backend:/app/backend 
       - ./frontend:/app/frontend
-      - ./db:/app/db 
+      - ./db:/app/db
     restart: unless-stopped

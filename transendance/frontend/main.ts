@@ -163,76 +163,44 @@ async function sendMessage(alias: string, message: string): Promise<any> {
 // --- Page Stubs ---
 function renderLogin() {
   setContent(`
-    <div class="max-w-md mx-auto mt-10 p-6 bg-gray-800 rounded-lg shadow">
-      <h1 class="text-xl font-bold mb-4">Login</h1>
-      <form id="login-form" class="flex flex-col gap-4">
-        <input type="email" name="email" placeholder="Email" class="p-2 border border-gray-600 rounded bg-gray-700 text-white" required />
-        <input type="password" name="password" placeholder="Password" class="p-2 border border-gray-600 rounded bg-gray-700 text-white" required />
-        <div class="flex gap-2">
-          <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full">Login</button>
-          <button type="button" onclick="window.route('/register')" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded w-full">Create Account</button>
-        </div>
-      </form>
-    </div>
+    <h1 class="text-xl font-bold">Login</h1>
+    <form id="login-form" class="flex flex-col gap-2 mt-4">
+      <input type="email" name="email" placeholder="Email" class="p-2 border" />
+      <input type="password" name="password" placeholder="Password" class="p-2 border" />
+      <button type="submit" class="bg-blue-600 text-white px-4 py-2">Submit</button>
+      <button type="button" onclick="route('/register')" class="m-2 bg-green-500 text-white px-4 py-2 rounded">Create Account</button>
+    </form>
   `);
 
   document.getElementById('login-form')!.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const form = e.target as HTMLFormElement;
-    const formData = new FormData(form);
+    const formData = new FormData(e.target as HTMLFormElement);
     const payload = {
-      email: formData.get('email'),
-      password: formData.get('password'),
-    };
-
-    // TODO: Implement actual login API call
-    console.log("Login payload", payload);
-    alert("Login not yet implemented.");
-  });
-}
-
-function renderRegister() {
-  setContent(`
-    <div class="max-w-md mx-auto mt-10 p-6 bg-gray-800 rounded-lg shadow">
-      <h1 class="text-xl font-bold mb-4">Create Account</h1>
-      <form id="register-form" class="flex flex-col gap-4">
-        <input name="display_name" type="text" placeholder="Public Name" required class="p-2 border border-gray-600 rounded bg-gray-700 text-white" />
-        <input name="email" type="email" placeholder="Email" required class="p-2 border border-gray-600 rounded bg-gray-700 text-white" />
-        <input name="password" type="password" placeholder="Password" required class="p-2 border border-gray-600 rounded bg-gray-700 text-white" />
-        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">Register</button>
-      </form>
-    </div>
-  `);
-
-  const form = document.getElementById('register-form')!;
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    const formData = new FormData(form as HTMLFormElement);
-    const payload = {
-      email: formData.get('email'),
-      password: formData.get('password'),
-      display_name: formData.get('display_name'),
+      email: formData.get('email')?.toString().trim(),
+      password: formData.get('password')?.toString().trim()
     };
 
     try {
-      const res = await fetch('/api/register', {
+      const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
       if (res.ok) {
-        alert('Account created!');
-        route('/login');
+
+        const data = await res.json();
+        localStorage.setItem('token', data.token);
+        alert('Login successful!');
+        route('/profile');
       } else {
         const msg = await res.text();
         alert('Error: ' + msg);
       }
     } catch (err) {
-      console.error("Registration error:", err);
-      alert("An error occurred during registration.");
+      alert('Network error');
+      console.error(err);
     }
   });
 }
@@ -257,9 +225,136 @@ function renderLocal1v1() {
 }
 
 
-function renderProfile() {
-  setContent('<div class="p-4">User Profile (WIP)</div>');
+function renderRegister() {
+    setContent(`
+    <h1>Create Account</h1>
+    <form id="register-form" class="flex flex-col gap-2 mt-4">
+      <input name="display_name" type="text" placeholder="Public Name" required class="p-2 border" />
+      <input name="email" type="email" placeholder="Email" required class="p-2 border" />
+      <input name="password" type="password" placeholder="Password" required class="p-2 border" />
+      <input name="avatar" type="file" accept="image/*" class="p-2 border" />
+      <button type="submit" class="bg-green-600 text-white px-4 py-2">Register</button>
+    </form>
+  `);
+
+  const form = document.getElementById('register-form') as HTMLFormElement;
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+  
+    const formData = new FormData(form);
+
+    try {
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        body: formData
+      });
+  
+      if (res.ok) {
+        alert('Account created!');
+        route('/profile');
+      } else {
+        const msg = await res.text();
+        alert('Error: ' + msg);
+      }
+    } catch (err) {
+      alert('Network error');
+      console.error(err);
+    }
+  });
 }
+
+  async function renderProfile() {
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert("Please login");
+      return route('/login');
+    }
+    const res = await fetch('/api/profile', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!res.ok) {
+      setContent(`<div class="text-red-600">Failed to load profile</div>`);
+      return;
+    }
+
+  const user = await res.json();
+
+  setContent(`
+    <div class="max-w-xl mx-auto mt-10 bg-white p-6 rounded-lg shadow-md text-center space-y-4">
+      <img src="${user.avatar_url}" alt="Avatar" class="w-24 h-24 rounded-full mx-auto shadow" />
+      <h2 class="text-2xl font-bold text-gray-800">${user.display_name}</h2>
+      <p class="text-sm text-gray-500">${user.email}</p>
+      <span class="inline-block text-xs px-2 py-1 rounded-full ${
+        user.account_status === 'online'
+          ? 'bg-green-200 text-green-800'
+          : user.account_status === 'offline'
+          ? 'bg-gray-200 text-gray-600'
+          : 'bg-red-200 text-red-700'
+      }">${user.account_status}</span>
+      <div class="text-sm text-gray-600">
+        <p><strong>Joined:</strong> ${new Date(user.created_at).toLocaleString()}</p>
+        <p><strong>Last Online:</strong> ${user.last_online ? new Date(user.last_online).toLocaleString() : 'First time online'}</p>
+      </div>
+      <button id="edit-profile-btn" class="bg-blue-600 text-white px-4 py-2 rounded">Edit Profile</button>
+      <button type="button" id="logout" class="bg-gray-400 text-white px-4 py-2 rounded">logout</button>
+    </div>
+  `);
+  
+    document.getElementById('edit-profile-btn')?.addEventListener('click', () => renderProfileEdit(user));
+    document.getElementById('logout')?.addEventListener('click', () => logout());
+  }; 
+
+  function renderProfileEdit(user: any) {
+    setContent(`
+      <form id="profile-form" class="max-w-xl mx-auto mt-10 bg-white p-6 rounded-lg shadow-md space-y-4 text-center">
+        <img src="${user.avatar_url}" alt="Avatar" class="w-24 h-24 rounded-full mx-auto shadow" />
+        
+        <input name="display_name" value="${user.display_name}" class="w-full p-2 border rounded" />
+        <input name="avatar" type="file" accept="image/*" class="p-2 border" />
+        <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded">Save</button>
+        <button type="button" id="cancel-edit" class="bg-gray-400 text-white px-4 py-2 rounded">Cancel</button>
+      </form>
+    `);
+  
+    document.getElementById('cancel-edit')?.addEventListener('click', () => renderProfile());
+  
+    const form = document.getElementById('profile-form')!;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+  
+      const data = new FormData(form as HTMLFormElement);
+      const token = localStorage.getItem('token');
+
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: data
+      });
+  
+      if (res.ok) {
+        alert('Profile updated!');
+        renderProfile();
+      } else {
+        const msg = await res.text();
+        alert('Error: ' + msg);
+      }
+    });
+  }
+
+  async function logout() {
+    await fetch('/api/logout', { method: 'POST' });
+    localStorage.removeItem('token');
+    route('/');
+  };
 
 function renderGame() {
   setContent('<div class="p-4">Game Placeholder (WIP)</div>');
