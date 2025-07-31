@@ -69,11 +69,11 @@ function renderHome() {
       <div class="p-2 border-b border-gray-700 font-semibold">Chat Room</div>
       <div id="chatBox" class="p-2 h-60 sm:h-52 overflow-y-auto text-sm break-words"></div>
       <div class="p-2 flex gap-1">
-      <input id="messageInput" placeholder="Message" class="flex-1 px-2 py-1 rounded text-black"
-        onkeydown="if(event.key === 'Enter'){ submitMessage(); }" />
-          <button onclick="submitMessage()" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded">Send</button>
+        <input id="messageInput" placeholder="Message" class="flex-1 px-2 py-1 rounded text-black"
+          onkeydown="if(event.key === 'Enter'){ submitMessage(); }" />
+        <button onclick="submitMessage()" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded">Send</button>
+      </div>
     </div>
-  </div>
 
     <!-- Main Page -->
     <div class="flex justify-between items-start p-4">
@@ -98,11 +98,19 @@ function renderHome() {
         </div>
       </div>
     </div>
+
+    <!-- Counter Button -->
+    <div class="fixed bottom-4 left-4 flex items-center gap-2 bg-gray-800 p-2 rounded">
+      <button onclick="incrementCounter()" class="bg-yellow-500 text-black px-3 py-1 rounded hover:bg-yellow-600">Counter</button>
+      <span id="counterDisplay" class="text-white text-lg">...</span>
+    </div>
   `);
 
   updateChatBox();
   setInterval(updateChatBox, 3000);
+  updateCounter(); // Fetch counter on load
 }
+
 
 
 // Visitor login logic
@@ -293,6 +301,19 @@ async function updateChatBox() {
   // Auto-scroll to bottom
   chatBox.scrollTop = chatBox.scrollHeight;
 }
+
+async function updateCounter() {
+  const span = document.getElementById("counterDisplay");
+  if (!span) return;
+  const res = await fetch("/api/count?id=main-counter");
+  const data = await res.json();
+  span.textContent = data.count;
+}
+
+(window as any).incrementCounter = async function () {
+  await fetch("/api/increment?id=main-counter", { method: "POST" });
+  updateCounter();
+};
 
 // Global bindings
 (window as any).route = route;

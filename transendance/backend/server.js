@@ -1,64 +1,90 @@
-// server.js - Fastify + Node.js backend (HTTPS, no TypeScript)
-
+// backend/server.js
+const Fastify = require('fastify');
 const fs = require('fs');
 const path = require('path');
-const Fastify = require('fastify');
 const fastifyStatic = require('@fastify/static');
+const db = require('./db');
 
-// ✅ HTTPS configuration
 const fastify = Fastify({
   logger: true,
   https: {
-    key: fs.readFileSync(path.join(__dirname, './cert/key.pem')),
-    cert: fs.readFileSync(path.join(__dirname, './cert/cert.pem')),
-
-  },
+    key: fs.readFileSync(path.join(__dirname, '../cert/key.pem')),
+    cert: fs.readFileSync(path.join(__dirname, '../cert/cert.pem'))
+  }
 });
 
-// ✅ Serve static files from ./public
+// Serve frontend files
 fastify.register(fastifyStatic, {
-  root: path.join(__dirname, './public'),
+  root: path.join(__dirname, 'public'),
   prefix: '/',
 });
 
-// --- Example APIs ---
-let countStore = {};
-const messages = [];
-
-fastify.get('/api/count', async (request, reply) => {
-  const id = request.query.id;
-  const count = countStore[id] || 0;
-  return { count };
-});
-
-fastify.post('/api/increment', async (request, reply) => {
-  const id = request.query.id;
-  countStore[id] = (countStore[id] || 0) + 1;
-  return { count: countStore[id] };
-});
+// --- API Endpoints ---
 
 fastify.get('/api/chat', async () => {
-  return messages;
+  return new Promise((resolve, reject) => {
+    db.all('SELECT alias, message, timestamp FROM messages ORDER BY id ASC', (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
 });
 
 fastify.post('/api/chat', async (request, reply) => {
   const { alias, message } = request.body;
-  messages.push({ alias, message });
-  return { success: true };
+  return new Promise((resolve, reject) => {
+    db.run(
+      'INSERT INTO messages (alias, message) VALUES (?, ?)',
+      [alias, message],
+      function (err) {
+        if (err) reject(err);
+        else resolve({ success: true });
+      }
+    );
+  });
 });
 
-// ✅ Catch-all route for SPA routing
+fastify.get('/api/count', async (request, reply) => {
+  const id = request.query.id;
+  return new Promise((resolve, reject) => {
+    db.get('SELECT count FROM counters WHERE id = ?', [id], (err, row) => {
+      if (err) reject(err);
+      else resolve({ count: row ? row.count : 0 });
+    });
+  });
+});
+
+fastify.post('/api/increment', async (request, reply) => {
+  const id = request.query.id;
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO counters (id, count)
+       VALUES (?, 1)
+       ON CONFLICT(id) DO UPDATE SET count = count + 1`,
+      [id],
+      function (err) {
+        if (err) reject(err);
+        else {
+          db.get('SELECT count FROM counters WHERE id = ?', [id], (err, row) => {
+            if (err) reject(err);
+            else resolve({ count: row.count });
+          });
+        }
+      }
+    );
+  });
+});
+
+// Fallback for SPA
 fastify.setNotFoundHandler((req, reply) => {
-  const indexPath = path.join(__dirname, './public/index.html');
-  const html = fs.readFileSync(indexPath, 'utf-8');
+  const html = fs.readFileSync(path.join(__dirname, 'public/index.html'), 'utf-8');
   reply.type('text/html').send(html);
 });
 
-// ✅ Start server on HTTPS (port 443)
 fastify.listen({ port: 443, host: '0.0.0.0' }, (err, address) => {
   if (err) {
     fastify.log.error(err);
     process.exit(1);
   }
-  fastify.log.info(`Server listening at ${address}`);
+  fastify.log.info(`Server running at ${address}`);
 });

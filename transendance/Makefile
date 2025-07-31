@@ -5,5 +5,5 @@ down:
 	docker compose down
 
 clean:
-	docker compose down -v --rmi all --remove-orphans
+	docker compose down --rmi all --remove-orphans
 	docker system prune -f
