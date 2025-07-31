@@ -1,5 +1,7 @@
 // Unified main.ts — full SPA routing in TypeScript
 
+import { initPongGame } from "./pong/pong.js";
+
 const app = document.getElementById('app');
 
 function setContent(html: string) {
@@ -239,13 +241,15 @@ function renderLocal1v1() {
       <h1 class="text-3xl font-bold mb-4">Local 1v1</h1>
       <div class="flex justify-between items-center max-w-2xl mx-auto mb-6 text-xl font-semibold">
         <span>${p1}: ${s1}</span>
-        <div class="w-64 h-40 border-2 border-white bg-black text-white flex items-center justify-center">
-          Pong Placeholder
-        </div>
+        <div id="pong-root" class="w-64 h-40 border-2 border-white bg-black text-white flex items-center justify-center"></div>
         <span>${p2}: ${s2}</span>
       </div>
     </div>
   `);
+  const container = document.getElementById('pong-root');
+  if (container) {
+    initPongGame(container);
+  }
 }
 
 

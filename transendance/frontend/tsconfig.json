@@ -8,5 +8,5 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["main.ts"]
+  "include": ["*.ts", "pong/**/*.ts"]
 }

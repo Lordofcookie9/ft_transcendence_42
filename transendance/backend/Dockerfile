@@ -35,6 +35,7 @@ COPY backend/tailwind.config.js ./backend/tailwind.config.js
 COPY --from=frontend-builder /app/frontend/index.html ./public/index.html
 COPY --from=frontend-builder /app/frontend/tailwind.css ./public/tailwind.css
 COPY --from=frontend-builder /app/frontend/main.js ./public/main.js
+COPY --from=frontend-builder /app/frontend/pong ./public/pong
 
 # Expose HTTPS port
 EXPOSE 443
