@@ -1,19 +1,21 @@
-// Unified main.ts — full SPA routing in TypeScript
-
 const app = document.getElementById('app');
+
 
 function setContent(html: string) {
   if (app) app.innerHTML = html;
 }
 
-function route(path: string) {
+async function route(path: string) {
   history.pushState({}, '', path);
   handleLocation();
 }
 
-window.addEventListener('popstate', handleLocation);
+window.addEventListener('popstate', () => {
+  handleLocation();
+});
 
-type RouteMap = { [path: string]: () => void };
+
+type RouteMap = { [path: string]: () => void | Promise<void> };
 
 const routes: RouteMap = {
   '/': renderEntryPage,
@@ -24,14 +26,87 @@ const routes: RouteMap = {
   '/profile': renderProfile,
   '/play': renderGame,
   '/chat': renderChat,
-  '/main': renderMain, // optional extra screen if needed
+  '/main': renderMain,
 };
 
-function handleLocation() {
+async function handleLocation() {
   const path = window.location.pathname;
+  if (path.startsWith('/profile/')) {
+    const id = parseInt(path.split('/')[2]);
+    await renderUserProfile(id);
+    return;
+  }
   const page = routes[path] || renderNotFound;
-  page();
+  await page();
 }
+
+async function renderUserProfile(userId: number) {
+
+  
+  setContent(`<div class="text-center text-xl">Loading profile...</div>`);
+
+  try {
+    const res = await fetch(`/api/user/${userId}`);
+    if (!res.ok) throw new Error("User not found");
+    const { user, stats } = await res.json();
+
+    const formatDate = (d: string) => new Date(d).toLocaleString();
+
+     setContent(`
+      <div class="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl shadow-xl">
+        <div class="flex items-center gap-6 mb-6">
+          <img src="${user.avatar_url}" class="w-24 h-24 rounded-full border-4 border-indigo-500" />
+          <div>
+            <h1 class="text-3xl font-bold">${user.display_name}</h1>
+            <p class="text-sm text-gray-400">Status: ${user.account_status}</p>
+            <p class="text-sm text-gray-400">Created: ${formatDate(user.created_at)}</p>
+            <p class="text-sm text-gray-400">Last Online: ${formatDate(user.last_online)}</p>
+          </div>
+        </div>
+
+        <div class="flex gap-4 mb-6">
+          <div class="bg-gray-700 px-4 py-2 rounded">🏆 Wins: <strong>${user.wins}</strong></div>
+          <div class="bg-gray-700 px-4 py-2 rounded">💥 Losses: <strong>${user.losses}</strong></div>
+        </div>
+
+        <div class="flex gap-2 mb-8">
+          <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded" onclick="window.addFriend(${user.id})">Add Friend</button>
+          <button class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded" onclick="window.acceptFriend(${user.id})">Accept</button>
+          <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
+          <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Invite to Play</button>
+        </div>
+
+        <h2 class="text-xl font-semibold mb-2">Recent Matches</h2>
+        <ul class="space-y-2">
+          ${stats.map((match: any) => `
+            <li class="bg-gray-700 px-4 py-2 rounded flex justify-between">
+              <span>${match.result.toUpperCase()} vs User #${match.opponent_id}</span>
+              <span>Score: ${match.score}</span>
+            </li>
+          `).join('')}
+        </ul>
+      </div>);`)
+  } catch (err) {
+    setContent(`<div class="text-red-500 text-center">Failed to load profile.</div>`);
+  }
+}
+
+(window as any).addFriend = async (id: number) => {
+  await fetch(`/api/friends/${id}/add`, { method: 'POST' });
+  alert("Friend request sent.");
+};
+(window as any).acceptFriend = async (id: number) => {
+  await fetch(`/api/friends/${id}/accept`, { method: 'POST' });
+  alert("Friend request accepted.");
+};
+(window as any).blockUser = async (id: number) => {
+  await fetch(`/api/friends/${id}/block`, { method: 'POST' });
+  alert("User blocked.");
+};
+(window as any).inviteToPlay = async (id: number) => {
+  alert("Invitation sent (feature coming soon)");
+};
+
 
 // --- Entry Page (landing) ---
 function renderEntryPage() {
@@ -111,8 +186,6 @@ function renderHome() {
   updateCounter(); // Fetch counter on load
 }
 
-
-
 // Visitor login logic
 (window as any).enterVisitor = () => {
   const input = document.getElementById("aliasInput") as HTMLInputElement;
@@ -133,6 +206,7 @@ function renderHome() {
   localStorage.setItem("p2Score", "0");
   route("/local");
 };
+
 // --- API Helpers ---
 async function getCount(id: string): Promise<number> {
   const res = await fetch(`/api/count?id=${id}`);
@@ -165,8 +239,8 @@ function renderLogin() {
   setContent(`
     <h1 class="text-xl font-bold">Login</h1>
     <form id="login-form" class="flex flex-col gap-2 mt-4">
-      <input type="email" name="email" placeholder="Email" class="p-2 border" />
-      <input type="password" name="password" placeholder="Password" class="p-2 border" />
+      <input type="email" name="email" placeholder="Email" class="p-2 border text-black" />
+      <input type="password" name="password" placeholder="Password" class="p-2 border text-black" />
       <button type="submit" class="bg-blue-600 text-white px-4 py-2">Submit</button>
       <button type="button" onclick="route('/register')" class="m-2 bg-green-500 text-white px-4 py-2 rounded">Create Account</button>
     </form>
@@ -225,13 +299,13 @@ function renderLocal1v1() {
 }
 
 
-function renderRegister() {
+async function renderRegister() {
     setContent(`
     <h1>Create Account</h1>
     <form id="register-form" class="flex flex-col gap-2 mt-4">
-      <input name="display_name" type="text" placeholder="Public Name" required class="p-2 border" />
-      <input name="email" type="email" placeholder="Email" required class="p-2 border" />
-      <input name="password" type="password" placeholder="Password" required class="p-2 border" />
+      <input name="display_name" type="text" placeholder="Public Name" required class="p-2 border text-black" />
+      <input name="email" type="email" placeholder="Email" required class="p-2 border text-black" />
+      <input name="password" type="password" placeholder="Password" required class="p-2 border text-black" />
       <input name="avatar" type="file" accept="image/*" class="p-2 border" />
       <button type="submit" class="bg-green-600 text-white px-4 py-2">Register</button>
     </form>
@@ -252,7 +326,7 @@ function renderRegister() {
   
       if (res.ok) {
         alert('Account created!');
-        route('/profile');
+        await route('/profile');
       } else {
         const msg = await res.text();
         alert('Error: ' + msg);
@@ -264,25 +338,36 @@ function renderRegister() {
   });
 }
 
-  async function renderProfile() {
 
-    const token = localStorage.getItem('token');
-    if (!token) {
-      alert("Please login");
-      return route('/login');
-    }
-    const res = await fetch('/api/profile', {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      }
-    });
+interface User {
+  id: number;
+  display_name: string;
+  avatar_url: string;
+  account_status: string;
+  created_at: string;
+  last_online: string; 
+}
 
-    if (!res.ok) {
-      setContent(`<div class="text-red-600">Failed to load profile</div>`);
-      return;
+
+async function renderProfile() {
+  const token = localStorage.getItem('token');
+  if (!token) {
+    alert("Please login");
+    return route('/login');
+  }
+
+  const res = await fetch('/api/profile', {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
     }
+  });
+
+  if (!res.ok) {
+    setContent(`<div class="text-red-600">Failed to load profile</div>`);
+    return;
+  }
 
   const user = await res.json();
 
@@ -303,13 +388,23 @@ function renderRegister() {
         <p><strong>Last Online:</strong> ${user.last_online ? new Date(user.last_online).toLocaleString() : 'First time online'}</p>
       </div>
       <button id="edit-profile-btn" class="bg-blue-600 text-white px-4 py-2 rounded">Edit Profile</button>
-      <button type="button" id="logout" class="bg-gray-400 text-white px-4 py-2 rounded">logout</button>
+
+      <button type="button" id="logout" class="bg-gray-400 text-white px-4 py-2 rounded">Logout</button>
+
+      <div class="mt-10">
+        <button onclick="renderUsers()" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">
+          Find New Friends
+        </button>
+      <div id="users-list" class="mt-6 max-w-2xl mx-auto"></div>
+</div>
+
     </div>
   `);
-  
-    document.getElementById('edit-profile-btn')?.addEventListener('click', () => renderProfileEdit(user));
-    document.getElementById('logout')?.addEventListener('click', () => logout());
-  }; 
+  document.getElementById('edit-profile-btn')?.addEventListener('click', () => renderProfileEdit(user));
+  document.getElementById('logout')?.addEventListener('click', logout);
+
+}
+
 
   function renderProfileEdit(user: any) {
     setContent(`
@@ -410,8 +505,55 @@ async function updateCounter() {
   updateCounter();
 };
 
+async function fetchAllUsers(): Promise<User[]> {
+  const res = await fetch('/api/users');
+
+  if (!res.ok) throw new Error('Failed to fetch users');
+  return await res.json();
+}
+
+async function renderUserList() {
+  const app = document.getElementById('app');
+  if (!app) return;
+  app.innerHTML = `<div class="text-center text-xl">Loading users...</div>`;
+
+  try {
+    const res = await fetch('/api/users');
+    const users = await res.json();
+
+    app.innerHTML = `
+      <div class="max-w-4xl mx-auto p-4">
+        <h1 class="text-2xl font-bold mb-4">Users</h1>
+        <ul class="space-y-3">
+          ${users.map((u: any) => `
+            <li class="bg-gray-800 p-4 rounded shadow flex justify-between items-center">
+              <div>
+                <div class="font-semibold">${u.display_name}</div>
+                <div class="text-sm text-gray-400">Status: ${u.account_status}</div>
+                <div class="text-sm text-gray-400">Joined: ${new Date(u.created_at).toLocaleDateString()}</div>
+                <div class="text-sm text-gray-400">Last online: ${new Date(u.last_online).toLocaleDateString()}</div>
+                <div class="text-sm">🏆 ${u.wins} Wins / 💥 ${u.losses} Losses</div>
+              </div>
+              <div class="text-right space-y-2">
+                ${u.friend_status ? `<div class="text-sm text-yellow-400">Friend: ${u.friend_status}</div>` : ''}
+                <a href="/profile/${u.id}" data-link class="text-blue-400 hover:underline">View Profile</a>
+              </div>
+            </li>
+          `).join('')}
+        </ul>
+      </div>
+    `;
+  } catch (err) {
+    app.innerHTML = `<div class="text-red-500 text-center">Failed to load users</div>`;
+  }
+}
+
+// --- Initialize ---
+handleLocation();
+
 // Global bindings
 (window as any).route = route;
+(window as any).renderUsers = renderUserList;
 (window as any).submitMessage = async function () {
   const alias = (document.getElementById('alias') as HTMLInputElement)?.value;
   const message = (document.getElementById('message') as HTMLInputElement)?.value;
@@ -419,16 +561,3 @@ async function updateCounter() {
   await sendMessage(alias, message);
   updateChatBox();
 };
-
-(window as any).submitMessage = async function () {
-  const alias = localStorage.getItem("alias") || "Anonymous";
-  const input = document.getElementById('messageInput') as HTMLInputElement;
-  const message = input?.value.trim();
-  if (!message) return;
-  await sendMessage(alias, message);
-  input.value = '';
-  updateChatBox();
-};
-
-// --- Initialize ---
-handleLocation();
