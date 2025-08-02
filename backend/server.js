@@ -9,19 +9,16 @@ const bcrypt = require('bcrypt');
 const fastifyJwt = require('@fastify/jwt');
 const fastifyCookie = require('@fastify/cookie');
 const fastifyMulter = require('fastify-multer');
-
-const dbPromise = require('./db');
+const initDb = require('./db');
 
 const start = async () => {
+  const db = await initDb();
+
   const fastify = Fastify({
     logger: true,
-    https: {
-      key: fs.readFileSync(path.join(__dirname, 'cert/key.pem')),
-      cert: fs.readFileSync(path.join(__dirname, 'cert/cert.pem')),
-    },
   });
 
-  // Plugins
+  // --- Plugins ---
   fastify.register(fastifyCookie);
   fastify.register(fastifyMulter.contentParser);
 
@@ -57,9 +54,9 @@ const start = async () => {
     reply.type('text/html').send(html);
   });
 
-  const db = await require('./db'); // <- awaits the async db init
-
   fastify.decorate('db', db);
+
+  // --- API Endpoints ---
 
   fastify.get('/api/users', async (req, reply) => {
     try {
@@ -91,7 +88,6 @@ const start = async () => {
         `, [currentUserId, currentUserId]);
 
         const friendMap = Object.fromEntries(friends.map(f => [f.friend_id, f.status]));
-
         users.forEach(user => {
           user.friend_status = friendMap[user.id] || null;
         });
@@ -262,10 +258,6 @@ const start = async () => {
     return { message: 'Profile updated', user: updatedUser };
   });
 
-
-
-  // --- API Endpoints ---
-
   fastify.get('/api/chat', async (request, reply) => {
     try {
       const messages = await fastify.db.all('SELECT alias, message, timestamp FROM messages ORDER BY id ASC');
@@ -274,62 +266,61 @@ const start = async () => {
       reply.code(500).send({ error: 'Failed to fetch messages' });
     }
   });
-  
 
-fastify.post('/api/chat', async (request, reply) => {
-  const { alias, message } = request.body;
+  fastify.post('/api/chat', async (request, reply) => {
+    const { alias, message } = request.body;
+    try {
+      await fastify.db.run('INSERT INTO messages (alias, message) VALUES (?, ?)', [alias, message]);
+      return { success: true };
+    } catch (err) {
+      reply.code(500).send({ error: 'Failed to save message' });
+    }
+  });
+
+  fastify.get('/api/count', async (request, reply) => {
+    const id = request.query.id;
+    try {
+      const row = await fastify.db.get('SELECT count FROM counters WHERE id = ?', [id]);
+      return { count: row ? row.count : 0 };
+    } catch (err) {
+      reply.code(500).send({ error: 'Failed to get count' });
+    }
+  });
+
+  fastify.post('/api/increment', async (request, reply) => {
+    const id = request.query.id;
+    try {
+      await fastify.db.run(`
+        INSERT INTO counters (id, count)
+        VALUES (?, 1)
+        ON CONFLICT(id) DO UPDATE SET count = count + 1
+      `, [id]);
+
+      const row = await fastify.db.get('SELECT count FROM counters WHERE id = ?', [id]);
+      return { count: row.count };
+    } catch (err) {
+      reply.code(500).send({ error: 'Failed to increment counter' });
+    }
+  });
+
+  // Graceful shutdown
+  const closeGracefully = async (signal) => {
+    console.log(`Received ${signal}. Closing server...`);
+    process.exit(0);
+  };
+
+  process.on('SIGINT', closeGracefully);
+  process.on('SIGTERM', closeGracefully);
+
   try {
-    await fastify.db.run('INSERT INTO messages (alias, message) VALUES (?, ?)', [alias, message]);
-    return { success: true };
+    await fastify.listen({ port: 3000, host: '0.0.0.0' });
+    fastify.log.info('Server running at http://0.0.0.0:3000');
   } catch (err) {
-    reply.code(500).send({ error: 'Failed to save message' });
+    fastify.log.error(err);
+    process.exit(1);
   }
-});
-
-
-fastify.get('/api/count', async (request, reply) => {
-  const id = request.query.id;
-  try {
-    const row = await fastify.db.get('SELECT count FROM counters WHERE id = ?', [id]);
-    return { count: row ? row.count : 0 };
-  } catch (err) {
-    reply.code(500).send({ error: 'Failed to get count' });
-  }
-});
-
-
-fastify.post('/api/increment', async (request, reply) => {
-  const id = request.query.id;
-  try {
-    await fastify.db.run(`
-      INSERT INTO counters (id, count)
-      VALUES (?, 1)
-      ON CONFLICT(id) DO UPDATE SET count = count + 1
-    `, [id]);
-
-    const row = await fastify.db.get('SELECT count FROM counters WHERE id = ?', [id]);
-    return { count: row.count };
-  } catch (err) {
-    reply.code(500).send({ error: 'Failed to increment counter' });
-  }
-});
-
-
-  // --- START SERVER ---
-  await fastify.listen({ port: 443, host: '0.0.0.0' });
-  fastify.log.info('Server running at https://0.0.0.0:443');
 };
 
-// Graceful shutdown
-const closeGracefully = async (signal) => {
-  console.log(`Received ${signal}. Closing server...`);
-  process.exit(0);
-};
-
-process.on('SIGINT', closeGracefully);
-process.on('SIGTERM', closeGracefully);
-
-// --- Start app ---
 start().catch((err) => {
   console.error('Server failed to start:', err);
   process.exit(1);

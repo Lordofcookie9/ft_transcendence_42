@@ -67,4 +67,4 @@ async function initDb() {
   return db;
 }
 
-module.exports = initDb();
+module.exports = initDb;
