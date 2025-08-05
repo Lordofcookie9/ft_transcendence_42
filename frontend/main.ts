@@ -1,3 +1,5 @@
+import { initPongGame } from "./pong/pong.js";
+
 //FRONTEND Typescript Tailwind
 const app = document.getElementById('app');
 
@@ -265,12 +267,17 @@ function renderLocal1v1() {
       <div class="flex justify-between items-center max-w-2xl mx-auto mb-6 text-xl font-semibold">
         <span>${p1}: ${s1}</span>
         <div class="w-64 h-40 border-2 border-white bg-black text-white flex items-center justify-center">
-          Pong Placeholder
+          <div id="pong-root" class="w-64 h-40 border-2 border-white bg-black text-white flex items-center justify-center"></div>
         </div>
         <span>${p2}: ${s2}</span>
       </div>
     </div>
   `);
+	const container = document.getElementById('pong-root');
+	if (container)
+	{
+		initPongGame(container);
+	}
 }
 
 

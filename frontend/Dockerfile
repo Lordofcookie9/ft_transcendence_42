@@ -13,10 +13,12 @@ RUN npx tsc
 # --- Stage 2: Serve with Nginx ---
 FROM nginx:alpine
 WORKDIR /usr/share/nginx/html
+RUN mkdir ./pong
 
 COPY --from=build /app/frontend/index.html .
 COPY --from=build /app/frontend/tailwind.css .
 COPY --from=build /app/frontend/main.js .
+COPY --from=build /app/frontend/pong ./pong
 
 # ✅ Copy from ROOT of build context — not relative to Dockerfile!
 COPY uploads/default-avatar.png /usr/share/nginx/html/default-avatar.png
