@@ -1,3 +1,4 @@
+//FRONTEND Typescript Tailwind
 const app = document.getElementById('app');
 
 
@@ -40,80 +41,29 @@ async function handleLocation() {
   await page();
 }
 
-async function renderUserProfile(userId: number) {
-
-  
-  setContent(`<div class="text-center text-xl">Loading profile...</div>`);
-
-  try {
-    const res = await fetch(`/api/user/${userId}`);
-    if (!res.ok) throw new Error("User not found");
-    const { user, stats } = await res.json();
-
-    const formatDate = (d: string) => new Date(d).toLocaleString();
-
-     setContent(`
-      <div class="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl shadow-xl">
-        <div class="flex items-center gap-6 mb-6">
-          <img src="${user.avatar_url}" class="w-24 h-24 rounded-full border-4 border-indigo-500" />
-          <div>
-            <h1 class="text-3xl font-bold">${user.display_name}</h1>
-            <p class="text-sm text-gray-400">Status: ${user.account_status}</p>
-            <p class="text-sm text-gray-400">Created: ${formatDate(user.created_at)}</p>
-            <p class="text-sm text-gray-400">Last Online: ${formatDate(user.last_online)}</p>
-          </div>
-        </div>
-
-        <div class="flex gap-4 mb-6">
-          <div class="bg-gray-700 px-4 py-2 rounded">🏆 Wins: <strong>${user.wins}</strong></div>
-          <div class="bg-gray-700 px-4 py-2 rounded">💥 Losses: <strong>${user.losses}</strong></div>
-        </div>
-
-        <div class="flex gap-2 mb-8">
-          <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded" onclick="window.addFriend(${user.id})">Add Friend</button>
-          <button class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded" onclick="window.acceptFriend(${user.id})">Accept</button>
-          <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
-          <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Invite to Play</button>
-        </div>
-
-        <h2 class="text-xl font-semibold mb-2">Recent Matches</h2>
-        <ul class="space-y-2">
-          ${stats.map((match: any) => `
-            <li class="bg-gray-700 px-4 py-2 rounded flex justify-between">
-              <span>${match.result.toUpperCase()} vs User #${match.opponent_id}</span>
-              <span>Score: ${match.score}</span>
-            </li>
-          `).join('')}
-        </ul>
-      </div>);`)
-  } catch (err) {
-    setContent(`<div class="text-red-500 text-center">Failed to load profile.</div>`);
-  }
-}
-
-(window as any).addFriend = async (id: number) => {
-  await fetch(`/api/friends/${id}/add`, { method: 'POST' });
-  alert("Friend request sent.");
-};
-(window as any).acceptFriend = async (id: number) => {
-  await fetch(`/api/friends/${id}/accept`, { method: 'POST' });
-  alert("Friend request accepted.");
-};
-(window as any).blockUser = async (id: number) => {
-  await fetch(`/api/friends/${id}/block`, { method: 'POST' });
-  alert("User blocked.");
-};
-(window as any).inviteToPlay = async (id: number) => {
-  alert("Invitation sent (feature coming soon)");
-};
-
-
 // --- Entry Page (landing) ---
 function renderEntryPage() {
-  setContent(`
-    <div class="text-center mt-10 space-y-6">
-      <h1 class="text-3xl font-bold mb-6">Welcome to Transcendence</h1>
+  const userName = localStorage.getItem("display_name");
+  const token = localStorage.getItem('token');
 
+  let identification = "";
+
+  if (token) {
+    identification = `
+      <div class="p-4">
+        <h1 class="text-2xl font-bold">Hello, ${escapeHtml(userName || 'User')}!</h1>
+        <p class="mt-2">You are logged in.</p>
+        <br />
+        <button type="button" id="logout" class="mt-4 bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500">
+          Logout
+        </button>
+        <button onclick="route('/home')" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded">
+          Go Play Game
+        </button>
+      </div>
+    `;
+  } else {
+    identification = `
       <div class="space-y-4">
         <button onclick="route('/register')" class="bg-gray-600 text-white px-6 py-3 rounded hover:bg-gray-700">
           Create Account
@@ -121,8 +71,7 @@ function renderEntryPage() {
         <button onclick="route('/login')" class="bg-gray-600 text-white px-6 py-3 rounded hover:bg-gray-700">
           Login
         </button>
-      </div>
-
+      </div>      
       <div class="mt-8 space-y-4">
         <h2 class="text-lg font-semibold">Continue as Visitor</h2>
         <input id="aliasInput" type="text" placeholder="Enter your alias"
@@ -132,9 +81,26 @@ function renderEntryPage() {
           Continue
         </button>
       </div>
+    `;
+  }
+
+  setContent(`
+    <div class="text-center mt-10 space-y-6">
+      <h1 class="text-3xl font-bold mb-6">Welcome to Transcendence</h1>
+      ${identification}
+      <div class="mt-10">
+        <button onclick="renderUsers()" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">
+          See Users
+        </button>
+        <div id="users-list" class="mt-6 max-w-2xl mx-auto"></div>
+      </div>
     </div>
   `);
+
+  document.getElementById('logout')?.addEventListener('click', logout);
 }
+
+
 // --- Main Homepage ---
 function renderHome() {
   const alias = localStorage.getItem("alias") || "Guest";
@@ -236,6 +202,12 @@ async function sendMessage(alias: string, message: string): Promise<any> {
 
 // --- Page Stubs ---
 function renderLogin() {
+  const token = localStorage.getItem('token');
+  if (token) {
+    alert("You are already logged in");
+    route('/profile');
+  }
+
   setContent(`
     <h1 class="text-xl font-bold">Login</h1>
     <form id="login-form" class="flex flex-col gap-2 mt-4">
@@ -266,6 +238,8 @@ function renderLogin() {
 
         const data = await res.json();
         localStorage.setItem('token', data.token);
+        localStorage.setItem('userId', data.user_id);
+        localStorage.setItem('display_name', data.display_name);
         alert('Login successful!');
         route('/profile');
       } else {
@@ -278,6 +252,7 @@ function renderLogin() {
     }
   });
 }
+
 function renderLocal1v1() {
   const p1 = localStorage.getItem("p1") || "P1";
   const p2 = localStorage.getItem("p2") || "P2";
@@ -338,7 +313,6 @@ async function renderRegister() {
   });
 }
 
-
 interface User {
   id: number;
   display_name: string;
@@ -347,7 +321,6 @@ interface User {
   created_at: string;
   last_online: string; 
 }
-
 
 async function renderProfile() {
   const token = localStorage.getItem('token');
@@ -365,13 +338,19 @@ async function renderProfile() {
   });
 
   if (!res.ok) {
-    setContent(`<div class="text-red-600">Failed to load profile</div>`);
+    setContent(`<div class="text-white-600">Not authorized to view this page.</div>`);
     return;
   }
 
   const user = await res.json();
+  localStorage.setItem("userId", user.id);
+  localStorage.setItem("display_name", user.display_name);
 
   setContent(`
+    <div class="flex justify-between items-start p-4">
+      <a href="/" data-link class="text-gray-400 hover:underline">Home</a>
+    </div>
+
     <div class="max-w-xl mx-auto mt-10 bg-white p-6 rounded-lg shadow-md text-center space-y-4">
       <img src="${user.avatar_url}" alt="Avatar" class="w-24 h-24 rounded-full mx-auto shadow" />
       <h2 class="text-2xl font-bold text-gray-800">${user.display_name}</h2>
@@ -384,8 +363,8 @@ async function renderProfile() {
           : 'bg-red-200 text-red-700'
       }">${user.account_status}</span>
       <div class="text-sm text-gray-600">
-        <p><strong>Joined:</strong> ${new Date(user.created_at).toLocaleString()}</p>
-        <p><strong>Last Online:</strong> ${user.last_online ? new Date(user.last_online).toLocaleString() : 'First time online'}</p>
+        <p><strong>Joined: </strong> ${new Date(user.created_at).toLocaleString()}</p>
+        <p><strong>Last Online: </strong> Online now</p>
       </div>
       <button id="edit-profile-btn" class="bg-blue-600 text-white px-4 py-2 rounded">Edit Profile</button>
 
@@ -396,36 +375,114 @@ async function renderProfile() {
           Find New Friends
         </button>
       <div id="users-list" class="mt-6 max-w-2xl mx-auto"></div>
-</div>
+      </div>
 
+      <button id="delete-profile-btn" class="bg-gray-400 text-white px-4 py-2 rounded">Delete Account</button>
+   
     </div>
   `);
+
   document.getElementById('edit-profile-btn')?.addEventListener('click', () => renderProfileEdit(user));
   document.getElementById('logout')?.addEventListener('click', logout);
+  document.getElementById('delete-profile-btn')?.addEventListener('click', async () => {
+    const confirmed = confirm('Are you sure you want to delete your profile? This action cannot be undone.');
+    if (!confirmed) return;
 
+    try {
+      const res = await fetch('/api/delete-account', {
+        method: 'DELETE',
+        headers: {
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+
+      if (res.ok) {
+        localStorage.clear();
+        alert('Your account has been deleted.');
+        route('/');
+      } else {
+        const error = await res.text();
+        alert('Error: ' + error);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Network error while deleting account.');
+    }
+  });
 }
 
 
-  function renderProfileEdit(user: any) {
-    setContent(`
-      <form id="profile-form" class="max-w-xl mx-auto mt-10 bg-white p-6 rounded-lg shadow-md space-y-4 text-center">
-        <img src="${user.avatar_url}" alt="Avatar" class="w-24 h-24 rounded-full mx-auto shadow" />
-        
-        <input name="display_name" value="${user.display_name}" class="w-full p-2 border rounded" />
-        <input name="avatar" type="file" accept="image/*" class="p-2 border" />
-        <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded">Save</button>
-        <button type="button" id="cancel-edit" class="bg-gray-400 text-white px-4 py-2 rounded">Cancel</button>
-      </form>
-    `);
-  
-    document.getElementById('cancel-edit')?.addEventListener('click', () => renderProfile());
-  
-    const form = document.getElementById('profile-form')!;
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-  
-      const data = new FormData(form as HTMLFormElement);
-      const token = localStorage.getItem('token');
+function renderProfileEdit(user: any) {
+  setContent(`
+    <form id="profile-form" class="max-w-xl mx-auto mt-10 bg-white p-6 rounded-lg shadow-md space-y-4 text-center">
+      <img src="${escapeHtml(user.avatar_url)}" alt="Avatar" class="w-24 h-24 rounded-full mx-auto shadow" />
+      
+      <input 
+        name="display_name" 
+        value="${escapeHtml(user.display_name)}" 
+        placeholder="New display name" 
+        class="w-full border p-2 rounded text-black"
+        required 
+      />
+
+      <input 
+        name="avatar" 
+        type="file" 
+        accept="image/*" 
+        class="w-full p-2 border rounded" 
+      />
+
+      <div class="flex justify-center space-x-4">
+        <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Save</button>
+        <button type="button" id="cancel-edit" class="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500">Cancel</button>
+      </div>
+    </form>
+  `);
+
+  // Cancel button handler
+  document.getElementById('cancel-edit')?.addEventListener('click', () => renderProfile());
+
+  // Avatar preview
+  const avatarInput = document.querySelector<HTMLInputElement>('input[name="avatar"]');
+  avatarInput?.addEventListener('change', () => {
+    const file = avatarInput.files?.[0];
+    if (file) {
+      const img = document.querySelector<HTMLImageElement>('form img');
+      if (img) img.src = URL.createObjectURL(file);
+    }
+  });
+
+  // Form submit
+  const form = document.getElementById('profile-form') as HTMLFormElement;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const data = new FormData(form);
+    const newName = data.get("display_name")?.toString().trim();
+    const avatarFile = data.get("avatar") as File | null;
+
+    const nameChanged = newName && newName !== user.display_name;
+    const avatarChanged = avatarFile instanceof File && avatarFile.size > 0;
+
+    if (!nameChanged && !avatarChanged) {
+      alert("Nothing changed.");
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert("You are not authenticated.");
+      return;
+    }
+
+    try {
+
+      if (!nameChanged) {
+        data.delete("display_name");
+      }
+      if (!avatarChanged) {
+        data.delete("avatar");
+      }      
 
       const res = await fetch('/api/profile', {
         method: 'PUT',
@@ -434,22 +491,55 @@ async function renderProfile() {
         },
         body: data
       });
-  
+
       if (res.ok) {
+        const result = await res.json();
+        localStorage.setItem('display_name', result.user.display_name);
         alert('Profile updated!');
         renderProfile();
       } else {
         const msg = await res.text();
         alert('Error: ' + msg);
       }
-    });
-  }
+    } catch (err) {
+      alert("Something went wrong while updating your profile.");
+      console.error(err);
+    }
+  });
+}
 
-  async function logout() {
-    await fetch('/api/logout', { method: 'POST' });
-    localStorage.removeItem('token');
-    route('/');
-  };
+async function logout(): Promise<void> {
+  try {
+    const userId = localStorage.getItem('userId');
+    const token = localStorage.getItem('token');
+    
+    if (!userId) {
+      throw new Error('No user ID found');
+    }
+    if (!token) {
+      alert("Please login");
+      return route('/login');
+    }
+
+    const response = await fetch('/api/logout', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    localStorage.clear(); 
+    
+    window.location.href = '/';
+  } catch (err) {
+    console.error('Logout failed:', err instanceof Error ? err.message : err);
+    alert('Logout failed. Please try again.');
+  }
+}
 
 function renderGame() {
   setContent('<div class="p-4">Game Placeholder (WIP)</div>');
@@ -505,51 +595,249 @@ async function updateCounter() {
   updateCounter();
 };
 
-async function fetchAllUsers(): Promise<User[]> {
-  const res = await fetch('/api/users');
+// async function fetchAllUsers(): Promise<User[]> {
+//   const res = await fetch('/api/users');
 
-  if (!res.ok) throw new Error('Failed to fetch users');
-  return await res.json();
+//   if (!res.ok) throw new Error('Failed to fetch users');
+//   return await res.json();
+// }
+
+function getUserInfo() {
+  const token = localStorage.getItem("token");
+  const userId = localStorage.getItem("userId");
+  const displayName = localStorage.getItem("display_name");
+  const alias = localStorage.getItem("alias");
+
+  if (token && userId) {
+    return { type: "loggedInUser", userId, displayName, token };
+  } else if (alias) {
+    return { type: "visitor", alias };
+  } else {
+    return { type: "anonymous" };
+  }
 }
+
+async function renderUserProfile(userId: number) {
+
+  
+  setContent(`<div class="text-center text-xl">Loading profile...</div>`);
+
+  try {
+    const res = await fetch(`/api/user/${userId}`);
+    if (!res.ok) throw new Error("User not found");
+    const { user, stats } = await res.json();
+    const formatDate = (d: string) => new Date(d).toLocaleString();
+
+    const currUser = getUserInfo();
+    const isSelf = userId.toString() === localStorage.getItem("userId");
+    let friendButtons = "";
+    let statsForm = "";
+    let goProfile = "";
+
+    if (currUser.type === "loggedInUser") {
+      if (Array.isArray(stats) && stats.length) {
+        statsForm = `
+          <h2 class="text-xl font-semibold mb-2">Recent Matches</h2>
+          <ul class="space-y-2">
+            ${stats.map((match: any) => `
+              <li class="bg-gray-700 px-4 py-2 rounded flex justify-between">
+                <span>${(match?.result || 'N/A').toUpperCase()} vs User #${match?.opponent_id ?? '?'}</span>
+                <span>Score: ${match?.score ?? '-'}</span>
+              </li>
+            `).join('')}
+          </ul>`;
+      }
+ 
+        if (!isSelf){
+          if (user.friend_status === "adding"){
+            friendButtons = `
+              <div class="text-white-600">This user has sent you a friend request</div>
+              <div class="flex gap-2 mb-8">
+              <button class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded" onclick="window.acceptFriend(${user.id})">Accept</button>
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
+              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+            </div>`}
+          else if (user.friend_status === "pending"){
+              friendButtons = `
+                <div class="text-white-600">Awaiting response to your friend request.</div>
+                <div class="flex gap-2 mb-8">
+                <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Cancel request</button>
+                <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
+                <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+              </div>`}
+          else if (user.friend_status === "accepted" || user.friend_status === "added") {
+            friendButtons = `
+            <div class="text-white-600">You are friends.</div>
+            <div class="flex gap-2 mb-8">
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Unfriend</button>
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
+              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+            </div>`}
+            else if (user.friend_status === "blocked"){
+                  friendButtons = `
+                  <div class="flex gap-2 mb-8">
+                  <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Unblock</button>
+                  </div>`} 
+            else if (!user.friend_status){
+                friendButtons = `
+                <div class="flex gap-2 mb-8">
+                  <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded" onclick="window.addFriend(${user.id})">Add Friend</button>
+                  <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
+                  <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+                </div>`}
+         }
+         else {
+              goProfile = `<a href="/profile" data-link class="text-white-400 hover:underline">Manage your profile</a>`}   
+      }
+
+     setContent(`
+      <div class="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl shadow-xl">
+        <div class="flex items-center gap-6 mb-6">
+          <img src="${user.avatar_url}" class="w-24 h-24 rounded-full border-4 border-indigo-500" />
+          <div>
+            <h1 class="text-3xl font-bold">${user.display_name}</h1>
+            <p class="text-sm text-gray-400">Status: ${user.account_status}</p>
+            <p class="text-sm text-gray-400">Created: ${formatDate(user.created_at)}</p>
+            <p class="text-sm text-gray-400">Last Online: ${formatDate(user.last_online)}</p>
+          </div>
+        </div>
+
+        <div class="flex gap-4 mb-6">
+          <div class="bg-gray-700 px-4 py-2 rounded">🏆 Wins: <strong>${user.wins}</strong></div>
+          <div class="bg-gray-700 px-4 py-2 rounded">💥 Losses: <strong>${user.losses}</strong></div>
+        </div>
+
+        ${friendButtons}
+        ${goProfile}
+        ${statsForm}
+
+      </div>`)}
+    catch (err) {
+      setContent(`<div class="text-red-500 text-center">Failed to load profile.</div>`);
+  }
+}
+
+(window as any).addFriend = async (id: number) => {
+  await fetch(`/api/friends/${id}/add`, { method: 'POST' });
+  alert("Friend request sent.");
+  await renderUserProfile(id);
+};
+
+(window as any).cancelAction = async (id: number) => {
+  await fetch(`/api/friends/${id}/cancelAction`, { method: 'POST' });
+  alert("Action canceled.");
+  await renderUserProfile(id);
+};
+
+(window as any).acceptFriend = async (id: number) => {
+  await fetch(`/api/friends/${id}/accept`, { method: 'POST' });
+  alert("Friend request accepted.");
+  await renderUserProfile(id);
+};
+
+(window as any).blockUser = async (id: number) => {
+  await fetch(`/api/friends/${id}/block`, { method: 'POST' });
+  alert("User blocked.");
+  await renderUserProfile(id);
+};
+(window as any).inviteToPlay = async (id: number) => {
+  renderHome();
+};
+
 
 async function renderUserList() {
   const app = document.getElementById('app');
   if (!app) return;
+
   app.innerHTML = `<div class="text-center text-xl">Loading users...</div>`;
+
+  const currUser = getUserInfo();
 
   try {
     const res = await fetch('/api/users');
-    const users = await res.json();
 
+    const users = await res.json();
+    if (!users.length) {
+      app.innerHTML = `<div class="text-center text-xl">No registered users</div>`;
+      return;
+    }
+    const currUser = getUserInfo();
+    
     app.innerHTML = `
       <div class="max-w-4xl mx-auto p-4">
         <h1 class="text-2xl font-bold mb-4">Users</h1>
         <ul class="space-y-3">
-          ${users.map((u: any) => `
-            <li class="bg-gray-800 p-4 rounded shadow flex justify-between items-center">
-              <div>
-                <div class="font-semibold">${u.display_name}</div>
-                <div class="text-sm text-gray-400">Status: ${u.account_status}</div>
-                <div class="text-sm text-gray-400">Joined: ${new Date(u.created_at).toLocaleDateString()}</div>
-                <div class="text-sm text-gray-400">Last online: ${new Date(u.last_online).toLocaleDateString()}</div>
-                <div class="text-sm">🏆 ${u.wins} Wins / 💥 ${u.losses} Losses</div>
-              </div>
-              <div class="text-right space-y-2">
-                ${u.friend_status ? `<div class="text-sm text-yellow-400">Friend: ${u.friend_status}</div>` : ''}
+          ${users.map((u: any) => {
+            let friendStatusHTML = '';
+            const isSelf = u.id.toString() === currUser.userId;
+            if (isSelf){
+              friendStatusHTML = `<div class="text-sm text-gray-400">You </div>`;
+            }
+
+            if (u.friend_status && currUser.type === "loggedInUser") {
+         
+              if (u.friend_status == 'blocking'){
+                friendStatusHTML = ``;
+                }
+              else {
+                friendStatusHTML = `<div class="text-sm text-gray-400">Friendship: ${u.friend_status}</div>`;
+              }
+            }
+            return `
+              <li class="bg-gray-800 p-4 rounded shadow flex items-center space-x-4">
+                <img src="${u.avatar_url}" class="w-24 h-24 rounded-full border-4 border-indigo-500" />
+                <div class="flex-1">
+                  <div class="font-semibold">${u.display_name}</div>
+                  <div class="text-sm text-gray-400">Status: ${u.account_status}</div>
+                  <div class="text-sm text-gray-400">Joined: ${new Date(u.created_at).toLocaleDateString()}</div>
+                  <div class="text-sm text-gray-400">Last online: ${new Date(u.last_online).toLocaleDateString()}</div>
+                  <div class="text-sm">🏆 ${u.wins} Wins / 💥 ${u.losses} Losses</div>
+                  ${friendStatusHTML}
+                </div>
                 <a href="/profile/${u.id}" data-link class="text-blue-400 hover:underline">View Profile</a>
-              </div>
-            </li>
-          `).join('')}
+              </li>`;
+          }).join('')}
         </ul>
       </div>
     `;
   } catch (err) {
+    console.error(err);
     app.innerHTML = `<div class="text-red-500 text-center">Failed to load users</div>`;
   }
 }
 
+
+// window.addEventListener('beforeunload', () => {
+//   const userId = localStorage.getItem('userId');
+//   if (sessionStorage.getItem('isReloading')) {
+//     return;
+//   }
+
+//   if (userId) {
+//     const data = new FormData();
+//     data.append('userId', userId);
+
+//     navigator.sendBeacon('/api/logout', data);
+//   }
+
+//   localStorage.removeItem('token');
+//   localStorage.removeItem('userId');
+//   localStorage.removeItem('alias');
+// });
+
+function escapeHtml(str: string) {
+  return str.replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+}
+
+
 // --- Initialize ---
 handleLocation();
+
+
 
 // Global bindings
 (window as any).route = route;

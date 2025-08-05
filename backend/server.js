@@ -1,3 +1,4 @@
+//BAKCEND NODE JS FASTIFY SQLITE
 const dotenv = require('dotenv');
 dotenv.config();
 
@@ -10,6 +11,7 @@ const fastifyJwt = require('@fastify/jwt');
 const fastifyCookie = require('@fastify/cookie');
 const fastifyMulter = require('fastify-multer');
 const initDb = require('./db');
+const crypto = require('crypto');
 
 const start = async () => {
   const db = await initDb();
@@ -28,11 +30,11 @@ const start = async () => {
   });
 
   fastify.decorate('authenticate', async (request, reply) => {
-    try {
-      await request.jwtVerify();
-    } catch (err) {
-      reply.send(err);
-    }
+  try {
+    await request.jwtVerify();
+  } catch (err) {
+    return reply.code(401).send({ error: 'Invalid or expired token' });
+  }
   });
 
   const multer = fastifyMulter({ dest: path.join(__dirname, 'uploads/') });
@@ -62,8 +64,8 @@ const start = async () => {
     try {
       let currentUserId = null;
       try {
-        const decoded = await req.jwtVerify();
-        currentUserId = decoded.id;
+        const authorized = await req.jwtVerify();
+        currentUserId = authorized.id;
       } catch (_) {}
 
       const users = await fastify.db.all(`
@@ -77,22 +79,24 @@ const start = async () => {
           (SELECT COUNT(*) FROM stats s WHERE s.winner_id = u.id) AS wins,
           (SELECT COUNT(*) FROM stats s WHERE s.user_id = u.id AND s.winner_id != u.id) AS losses
         FROM users u
-        ORDER BY u.last_online DESC
+        ORDER BY 
+        CASE WHEN u.account_status = 'online' THEN 0 ELSE 1 END,
+        u.last_online DESC
       `);
 
       if (currentUserId) {
         const friends = await fastify.db.all(`
-          SELECT friend_id, status FROM friends WHERE user_id = ?
-          UNION
-          SELECT user_id as friend_id, status FROM friends WHERE friend_id = ?
-        `, [currentUserId, currentUserId]);
-
+          SELECT user_id AS friend_id, status
+          FROM friends
+          WHERE friend_id = ?
+        `, [currentUserId]);
+      
         const friendMap = Object.fromEntries(friends.map(f => [f.friend_id, f.status]));
+      
         users.forEach(user => {
           user.friend_status = friendMap[user.id] || null;
         });
-      }
-
+      }      
       reply.send(users);
     } catch (err) {
       console.error("DB error in /api/users:", err);
@@ -101,8 +105,14 @@ const start = async () => {
   });
 
   fastify.get('/api/user/:id', async (req, reply) => {
-    const userId = req.params.id;
     try {
+      let currentUserId = null;
+      try {
+        const authorized = await req.jwtVerify();
+        currentUserId = authorized.id;
+      } catch (err) {}
+
+      const userId = req.params.id;
       const user = await fastify.db.get(`
         SELECT 
           u.id,
@@ -115,11 +125,22 @@ const start = async () => {
           (SELECT COUNT(*) FROM stats s WHERE s.user_id = u.id AND s.winner_id != u.id) AS losses
         FROM users u WHERE u.id = ?
       `, [userId]);
+      if (!user) return reply.code(404).send('User not found');
 
       const stats = await fastify.db.all(`
         SELECT * FROM stats WHERE user_id = ? ORDER BY created_at DESC LIMIT 10
       `, [userId]);
 
+      if (currentUserId) {
+        const friendRow = await fastify.db.get(`
+          SELECT status
+          FROM friends
+          WHERE user_id = ? AND friend_id = ?
+        `, [user.id, currentUserId]);
+      
+        user.friend_status = friendRow?.status || null;
+      }
+      
       reply.send({ user, stats });
     } catch (err) {
       console.error("Failed to get user profile:", err);
@@ -128,46 +149,113 @@ const start = async () => {
   });
 
   fastify.post('/api/friends/:id/add', { preHandler: [fastify.authenticate] }, async (req, reply) => {
-    const targetId = req.params.id;
+    const friendId = req.params.id;
     const userId = req.user.id;
     try {
+
+      await fastify.db.run('BEGIN TRANSACTION');
       await fastify.db.run(`
         INSERT OR IGNORE INTO friends (user_id, friend_id, status)
-        VALUES (?, ?, 'pending')
-      `, [userId, targetId]);
+        VALUES (?, ?, 'adding')
+      `, [userId, friendId]);
+
+      await fastify.db.run(
+        `INSERT INTO friends (user_id, friend_id, status)
+        VALUES (?, ?, 'pending')`,
+        [friendId, userId]
+      );
+      await fastify.db.run('COMMIT');
       reply.send({ success: true });
     } catch (err) {
       reply.status(500).send({ error: 'Failed to send friend request' });
     }
   });
 
-  fastify.post('/api/friends/:id/accept', { preHandler: [fastify.authenticate] }, async (req, reply) => {
-    const targetId = req.params.id;
+  fastify.post('/api/friends/:id/cancelAction', { preHandler: [fastify.authenticate] }, async (req, reply) => {
+    const friendId = req.params.id;
     const userId = req.user.id;
     try {
-      await fastify.db.run(`
-        UPDATE friends SET status = 'accepted'
-        WHERE user_id = ? AND friend_id = ?
-      `, [targetId, userId]);
+      await fastify.db.run(
+        `DELETE FROM friends 
+         WHERE (user_id = ? AND friend_id = ?)
+         OR (user_id = ? AND friend_id = ?)`,
+        [userId, friendId, friendId, userId]
+      );
       reply.send({ success: true });
     } catch (err) {
-      reply.status(500).send({ error: 'Failed to accept friend request' });
+      reply.status(500).send({ error: 'Failed to unblock user' });
+    }
+  });
+
+
+  fastify.post('/api/friends/:id/accept', { preHandler: [fastify.authenticate] }, async (req, reply) => {
+    const friendId = req.params.id;
+    const userId = req.user.id;
+  
+    try {
+ 
+      await fastify.db.run('BEGIN TRANSACTION');
+  
+      const result = await fastify.db.run(
+        `UPDATE friends SET status = 'added' 
+         WHERE user_id = ? AND friend_id = ? AND status = 'adding'`,
+        [friendId, userId]
+      );
+  
+      if (result.changes === 0) {
+        await fastify.db.run('ROLLBACK');
+        return reply.code(404).send({ error: 'No pending friend request found' });
+      }
+  
+      await fastify.db.run(
+        `UPDATE friends SET status = 'accepted' 
+         WHERE user_id = ? AND friend_id = ? AND status = 'pending'`,
+        [userId, friendId]
+      );
+
+      await fastify.db.run('COMMIT');
+      reply.send({ success: true });
+    } catch (err) {
+      await fastify.db.run('ROLLBACK').catch(() => {});
+      fastify.log.error(err);
+      reply.code(500).send({ error: 'Failed to accept friend request' });
     }
   });
 
   fastify.post('/api/friends/:id/block', { preHandler: [fastify.authenticate] }, async (req, reply) => {
-    const targetId = req.params.id;
+    const friendId = req.params.id;
     const userId = req.user.id;
     try {
-      await fastify.db.run(`
-        INSERT OR REPLACE INTO friends (user_id, friend_id, status)
-        VALUES (?, ?, 'blocked')
-      `, [userId, targetId]);
-      reply.send({ success: true });
-    } catch (err) {
-      reply.status(500).send({ error: 'Failed to block user' });
-    }
-  });
+
+      await fastify.db.run('BEGIN TRANSACTION');
+      await fastify.db.run(
+        `DELETE FROM friends 
+         WHERE (user_id = ? AND friend_id = ?)
+         OR (user_id = ? AND friend_id = ?)`,
+        [userId, friendId, friendId, userId]
+      );
+
+    // TO DO check if there's msg etc.to delete
+
+    await fastify.db.run(
+      `INSERT INTO friends (user_id, friend_id, status)
+       VALUES (?, ?, 'blocking')`,
+      [userId, friendId]
+    );
+
+    await fastify.db.run(
+      `INSERT INTO friends (user_id, friend_id, status)
+       VALUES (?, ?, 'blocked')`,
+      [friendId, userId]
+    );
+
+    await fastify.db.run('COMMIT');
+    reply.send({ success: true });
+  } catch (err) {
+    await fastify.db.run('ROLLBACK');
+    reply.code(500).send({ error: 'Failed to block user' });
+  }
+});
 
   fastify.post('/api/register', { preHandler: upload }, async (req, reply) => {
     const { email, password, display_name } = req.body;
@@ -181,7 +269,7 @@ const start = async () => {
     const hash = await bcrypt.hash(password, 10);
 
     try {
-      await db.run(
+      await fastify.db.run(
         `INSERT INTO users (email, password_hash, display_name, avatar_url, last_online, account_status)
          VALUES (?, ?, ?, ?, 0, 'online')`,
         [email, hash, display_name, avatarUrl]
@@ -207,7 +295,7 @@ const start = async () => {
     if (!match) return reply.code(401).send('Invalid email or password');
 
     const token = fastify.jwt.sign({ id: user.id });
-    await db.run(`UPDATE users SET account_status = 'online' WHERE id = ?`, [user.id]);
+    await fastify.db.run(`UPDATE users SET account_status = 'online' WHERE id = ?`, [user.id]);
 
     reply.setCookie('token', token, {
       httpOnly: true,
@@ -216,14 +304,46 @@ const start = async () => {
       path: '/'
     });
 
-    reply.send({ token });
+    reply.send({
+      token,
+      display_name: user.display_name,
+      user_id: user.id});
   });
 
-  fastify.post('/api/logout', { preValidation: [fastify.authenticate] }, async (req, reply) => {
-    const userId = req.user.id;
-    await db.run(`UPDATE users SET account_status = 'offline', last_online = CURRENT_TIMESTAMP WHERE id = ?`, [userId]);
-    reply.clearCookie('token');
-    return { message: 'Logged out' };
+  fastify.post('/api/logout', async (req, reply) => {
+    try {
+      let userId = null;
+      try {
+        const authorized = await req.jwtVerify();
+        userId = authorized.id;
+      } catch (err_) {
+        console.error('Unauthorized:', err);
+      }
+      
+      if (!userId) {
+        return reply.code(401).send({ error: 'Unauthorized: Invalid or missing token' });
+      }
+  
+      await fastify.db.run(
+        `UPDATE users 
+         SET account_status = 'offline', 
+             last_online = CURRENT_TIMESTAMP 
+         WHERE id = ?`,
+        [userId]
+      );
+
+      reply.clearCookie('token', {
+        path: '/',
+        httpOnly: true,
+        secure: true,
+        sameSite: 'lax'
+      });
+  
+      reply.send({ message: 'Logged out successfully' });
+    } catch (err) {
+      console.error('Logout error:', err);
+      reply.code(500).send({ error: 'Logout failed' });
+    }
   });
 
   fastify.get('/api/profile', { preValidation: [fastify.authenticate] }, async (req, reply) => {
@@ -241,22 +361,49 @@ const start = async () => {
   }, async (req, reply) => {
     const avatar = req.file;
     const { display_name } = req.body;
-    const avatar_url = avatar ? `/uploads/${avatar.filename}` : req.body.avatar_url;
+  
+    if (avatar && !avatar.mimetype.startsWith('image/')) {
+      return reply.code(400).send({ error: 'Invalid file type' });
+    }
 
-    const result = await db.run(
-      `UPDATE users SET display_name = ?, avatar_url = ? WHERE id = ?`,
-      [display_name.trim(), avatar_url?.trim(), req.user.id]
+    const newAvatarUrl = avatar ? `/uploads/${avatar.filename}` : req.body.avatar_url?.trim();
+    const trimmedName = display_name?.trim();
+
+
+    const existing = await db.get(
+      `SELECT display_name, avatar_url FROM users WHERE id = ?`,
+      [req.user.id]
     );
+  
+    if (!existing) return reply.code(404).send({ error: 'User not found' });
+  
+    const isSameName = trimmedName === existing.display_name;
+    const isSameAvatar = newAvatarUrl === existing.avatar_url;
+  
+    if (isSameName && isSameAvatar) {
+      return reply.code(400).send({ error: 'No changes made' });
+    }
+  
+    if (newAvatarUrl && !isSameAvatar){
+    await fastify.db.run(
+      `UPDATE users SET avatar_url = ? WHERE id = ?`,
+      [newAvatarUrl, req.user.id]
+    );}
 
-    if (result.changes === 0) return reply.code(404).send({ error: 'No changes made' });
-
+    if (trimmedName && !isSameName){
+      await fastify.db.run(
+        `UPDATE users SET display_name = ? WHERE id = ?`,
+        [trimmedName, req.user.id]
+      );}
+  
     const updatedUser = await db.get(
       `SELECT id, email, display_name, avatar_url, created_at, last_online, account_status FROM users WHERE id = ?`,
       [req.user.id]
     );
-
+  
     return { message: 'Profile updated', user: updatedUser };
   });
+  
 
   fastify.get('/api/chat', async (request, reply) => {
     try {
@@ -302,6 +449,29 @@ const start = async () => {
       reply.code(500).send({ error: 'Failed to increment counter' });
     }
   });
+
+  fastify.delete('/api/delete-account', { preValidation: [fastify.authenticate] }, async (req, reply) => {
+    const userId = req.user.id;
+    const user = await db.get('SELECT email FROM users WHERE id = ?', [userId]);
+
+    const emailHash = crypto.createHash('sha256').update(user.email).digest('hex');
+
+    await fastify.db.run(
+    `INSERT INTO deleted_users (email_hash) VALUES (?)`,
+    [emailHash]
+    );
+  
+    await fastify.db.run('DELETE FROM users WHERE id = ?', [userId]);
+  
+    reply.clearCookie('token', {
+      path: '/',
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax'
+    });
+    return { message: 'Your account has been permanently deleted' };
+  });
+  
 
   // Graceful shutdown
   const closeGracefully = async (signal) => {

@@ -4,10 +4,11 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     container_name: transcendance_backend
+    env_file:
+      - .env
     volumes:
-      - ./backend:/app
-      - /app/node_modules
       - ./uploads:/app/uploads
+      - ./db:/app/db
     expose:
       - "3000"
     networks:

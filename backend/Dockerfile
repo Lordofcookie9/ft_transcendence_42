@@ -2,6 +2,8 @@ FROM node:20
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y sqlite3
+
 # Copy both package.json and package-lock.json if it exists
 COPY backend/package*.json ./
 
