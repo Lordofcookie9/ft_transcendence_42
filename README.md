@@ -6,7 +6,7 @@ This is the last common core 42 school project
 Made by :
     
     + Judith +
-      Yulin
+    % Yulin %
     * Robin *
 
 Goal
@@ -31,7 +31,7 @@ Main Objectives
 
     Host the application using Docker Compose
 
-Mandatory Features to Implement
+Mandatory Features to Implement             robin ju yulin
     -website must be spa     V
     -compatible with firefox V
     -use docker              V
@@ -41,17 +41,21 @@ Mandatory Features to Implement
     -matchmaking system      X
     -all player under same rules X
 
+Modules 7 major + 1 minor
 
-
-Modules
-
-- [v] Use a framework to build the backend (Major)                ju
-- [v] Use a framework or a toolkit to build the frontend (Minor)  ju
-- [v] Use a database for the backend (Minor)                      ju
+- [v] Use a framework to build the backend (Major)                ju yulin
+- [v] Use a framework or a toolkit to build the frontend (Minor)  ju yulin
+- [v] Use a database for the backend (Minor)                      ju yulin
 - [x] Live Chat (Major) WIP                                       ju
 - [x] Remote Players (Major)
 - [x] AI Opponent (Major)                                         robin
+- [x] GDPR compliance (Minor)                                     robin
 - [x] Standard User Management (Major)                            yulin
-- [x] 2FA + JWT (Major)                                           yulin
+- [x] Cybersecurity 2FA + JWT (Major)                             yulin
+
+Options 
+- Server-Side Pong (Major) ?
+- Remote authentication (Major) ?
+- Server-Side Rendering (SSR) integration (Minor) ? 
 
 Module counter : 2/7

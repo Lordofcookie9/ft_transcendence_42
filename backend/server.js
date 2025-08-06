@@ -346,7 +346,7 @@ const start = async () => {
     }
   });
 
-  fastify.get('/api/profile', { preValidation: [fastify.authenticate] }, async (req, reply) => {
+ fastify.get('/api/profile', { preValidation: [fastify.authenticate] }, async (req, reply) => {
     const user = await db.get(
       `SELECT id, email, display_name, avatar_url, created_at, last_online, account_status FROM users WHERE id = ?`,
       [req.user.id]
@@ -355,52 +355,79 @@ const start = async () => {
     return user;
   });
 
-  fastify.put('/api/profile', {
+  fastify.patch('/api/avatar', {
     preValidation: [fastify.authenticate],
     preHandler: upload,
   }, async (req, reply) => {
+
     const avatar = req.file;
-    const { display_name } = req.body;
-  
     if (avatar && !avatar.mimetype.startsWith('image/')) {
       return reply.code(400).send({ error: 'Invalid file type' });
     }
 
-    const newAvatarUrl = avatar ? `/uploads/${avatar.filename}` : req.body.avatar_url?.trim();
-    const trimmedName = display_name?.trim();
-
-
-    const existing = await db.get(
-      `SELECT display_name, avatar_url FROM users WHERE id = ?`,
+    const result = await db.get(
+      `SELECT avatar_url FROM users WHERE id = ?`,
       [req.user.id]
     );
+    if (!result) return reply.code(404).send({ error: 'User not found' });
+    const oldAvatarUrl = result?.avatar_url;
   
-    if (!existing) return reply.code(404).send({ error: 'User not found' });
-  
-    const isSameName = trimmedName === existing.display_name;
-    const isSameAvatar = newAvatarUrl === existing.avatar_url;
-  
-    if (isSameName && isSameAvatar) {
-      return reply.code(400).send({ error: 'No changes made' });
+    if (avatar && oldAvatarUrl && oldAvatarUrl.startsWith('/uploads/')) {
+      const oldFilePath = path.join(__dirname, 'uploads', path.basename(oldAvatarUrl));
+      fs.unlink(oldFilePath, (err) => {
+        if (err) {
+          console.error('Failed to delete old avatar:', err.message);
+        } else {
+          console.log('Old avatar deleted:', oldFilePath);
+        }
+      });
     }
-  
-    if (newAvatarUrl && !isSameAvatar){
+
+    const newAvatarUrl = avatar ? `/uploads/${avatar.filename}` : req.body.avatar_url?.trim();
+    if (newAvatarUrl){
     await fastify.db.run(
       `UPDATE users SET avatar_url = ? WHERE id = ?`,
       [newAvatarUrl, req.user.id]
     );}
 
-    if (trimmedName && !isSameName){
-      await fastify.db.run(
-        `UPDATE users SET display_name = ? WHERE id = ?`,
-        [trimmedName, req.user.id]
-      );}
-  
     const updatedUser = await db.get(
       `SELECT id, email, display_name, avatar_url, created_at, last_online, account_status FROM users WHERE id = ?`,
       [req.user.id]
     );
   
+    return { message: 'Profile updated', user: updatedUser };
+  });
+  
+
+  fastify.patch('/api/name', {
+    preValidation: [fastify.authenticate],
+    preHandler: upload,
+  }, async (req, reply) => {
+
+    const { display_name } = req.body;
+    const trimmedName = display_name?.trim();
+
+    const oldName = await db.get(
+      `SELECT display_name, avatar_url FROM users WHERE id = ?`,
+      [req.user.id]
+    );
+  
+    if (!oldName) return reply.code(404).send({ error: 'User not found' });
+  
+    if (trimmedName === oldName) {
+      return reply.code(400).send({ error: 'No changes made' });
+    }
+  
+
+      await fastify.db.run(
+        `UPDATE users SET display_name = ? WHERE id = ?`,
+        [trimmedName, req.user.id]
+      );
+
+    const updatedUser = await db.get(
+      `SELECT id, email, display_name, avatar_url, created_at, last_online, account_status FROM users WHERE id = ?`,
+      [req.user.id]
+    );
     return { message: 'Profile updated', user: updatedUser };
   });
   
