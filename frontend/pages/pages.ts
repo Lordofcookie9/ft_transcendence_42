@@ -144,28 +144,45 @@ export async function sendMessage(alias: string, message: string): Promise<any> 
 // --- Page Stubs ---
 
 export function renderLocal1v1() {
-	const p1 = localStorage.getItem("p1") || "P1";
+	const displayName = localStorage.getItem("display_name");
+	const p1 = displayName || localStorage.getItem("p1") || "P1";
 	const p2 = localStorage.getItem("p2") || "P2";
 	const s1 = localStorage.getItem("p1Score") || "0";
 	const s2 = localStorage.getItem("p2Score") || "0";
 
 	setContent(`
-		<div class="text-center mt-10">
-		  <h1 class="text-3xl font-bold mb-4">Local 1v1</h1>
-		  <div class="flex justify-between items-center max-w-2xl mx-auto mb-6 text-xl font-semibold">
-			<span>${p1}: ${s1}</span>
-			<div class="w-64 h-40 border-2 border-white bg-black text-white flex items-center justify-center">
-			  <div id="pong-root" class="w-64 h-40 border-2 border-white bg-black text-white flex items-center justify-center"></div>
-			</div>
-			<span>${p2}: ${s2}</span>
-		  </div>
-		</div>
-	  `);
-		const container = document.getElementById('pong-root');
-		if (container)
-		{
-			initPongGame(container);
-		}
+  <div class="relative text-center mt-10">
+    <a href="/home" onclick="route('/home')" class="absolute top-4 left-4 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm">
+      ← Home
+    </a>
+
+    <h1 class="text-3xl font-bold mb-4">Local 1v1</h1>
+
+    <div class="flex justify-between items-center max-w-6xl mx-auto mb-4 px-8 text-xl font-semibold text-white">
+      <div id="player1-info" class="text-left w-1/3">${p1}: ${s1}</div>
+      <button id="replay-btn" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded">Replay</button>
+      <div id="player2-info" class="text-right w-1/3">${p2}: ${s2}</div>
+    </div>
+
+    <div class="flex justify-center">
+      <div id="pong-root" class="border-2 border-white bg-black"></div>
+    </div>
+  </div>
+`);
+
+	const container = document.getElementById("pong-root");
+	if (container) {
+		initPongGame(container);
+	}
+	const replayBtn = document.getElementById("replay-btn");
+	if (replayBtn) {
+		replayBtn.onclick = () => {
+			localStorage.setItem("p1Score", "0");
+			localStorage.setItem("p2Score", "0");
+			const container = document.getElementById("pong-root");
+			if (container) initPongGame(container);
+		};
+}
 }
 
 export function renderGame() {
