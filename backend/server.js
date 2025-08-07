@@ -294,7 +294,10 @@ const start = async () => {
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) return reply.code(401).send('Invalid email or password');
 
-    const token = fastify.jwt.sign({ id: user.id });
+    const token = fastify.jwt.sign({
+      id: user.id,
+      display_name: user.display_name
+    });
     await fastify.db.run(`UPDATE users SET account_status = 'online' WHERE id = ?`, [user.id]);
 
     reply.setCookie('token', token, {
@@ -442,14 +445,32 @@ const start = async () => {
   });
 
   fastify.post('/api/chat', async (request, reply) => {
-    const { alias, message } = request.body;
+  try {
+    let alias = request.body.alias;
+    const message = request.body.message;
+
     try {
-      await fastify.db.run('INSERT INTO messages (alias, message) VALUES (?, ?)', [alias, message]);
-      return { success: true };
-    } catch (err) {
-      reply.code(500).send({ error: 'Failed to save message' });
+      const user = await request.jwtVerify();
+      alias = user.display_name;
+    } catch (_) {}
+
+    console.log("Chat message received:", { alias, message });
+
+    if (!alias || !message) {
+      return reply.code(400).send({ error: 'Missing alias or message' });
     }
-  });
+
+    await fastify.db.run(
+      'INSERT INTO messages (alias, message) VALUES (?, ?)',
+      [alias, message]
+    );
+
+    return { success: true };
+  } catch (err) {
+    console.error("Failed to save chat message:", err);
+    reply.code(500).send({ error: 'Failed to save message' });
+  }
+});
 
   fastify.get('/api/count', async (request, reply) => {
     const id = request.query.id;

@@ -91,9 +91,25 @@ handleLocation();
 (window as any).route = route;
 (window as any).renderUsers = renderUserList;
 (window as any).submitMessage = async function () {
-	const alias = (document.getElementById('alias') as HTMLInputElement)?.value;
-	const message = (document.getElementById('message') as HTMLInputElement)?.value;
-	if (!alias || !message) return;
-	await sendMessage(alias, message);
+	const input = document.getElementById('messageInput') as HTMLInputElement;
+	const message = input?.value.trim();
+	if (!message) return;
+
+	const token = localStorage.getItem("token");
+	const alias = localStorage.getItem("alias");
+
+	const payload = token
+		? { message } // Logged-in user: alias comes from JWT
+		: { alias: alias || "Guest", message }; // Visitor: send alias manually
+
+	await fetch("/api/chat", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify(payload),
+	});
+
+	input.value = "";
 	updateChatBox();
 };

@@ -192,17 +192,44 @@ export function renderChat() {
 	updateChatBox();
 }
 
+let knownUserSet: Set<string> | null = null;
+
+async function loadKnownUsers() {
+	if (knownUserSet) return; // already loaded
+
+	try {
+		const res = await fetch('/api/users');
+		const users = await res.json();
+		knownUserSet = new Set(users.map((u: any) => u.display_name));
+	} catch (err) {
+		console.error("Failed to load known users", err);
+		knownUserSet = new Set(); // fallback
+	}
+}
+
 export async function updateChatBox() {
 	const chatBox = document.getElementById('chatBox');
 	if (!chatBox) return;
 
+	await loadKnownUsers();
+
 	const messages = await getMessages();
+
 	chatBox.innerHTML = messages.map(msg => {
-		const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-		return `<div><span class="text-gray-400">[${timestamp}]</span> <strong>${msg.alias}</strong>: ${msg.message}</div>`;
+		const timestamp = new Date(msg.timestamp).toLocaleTimeString([], {
+			hour: '2-digit',
+			minute: '2-digit',
+		});
+
+		const isRegisteredUser = knownUserSet?.has(msg.alias);
+
+		const aliasHTML = isRegisteredUser
+			? `<a href="/profile/${msg.alias}" data-link class="text-blue-400 hover:underline">${msg.alias}</a>`
+			: `<strong>${msg.alias}</strong>`;
+
+		return `<div><span class="text-gray-400">[${timestamp}]</span> ${aliasHTML}: ${msg.message}</div>`;
 	}).join('');
 
-	// Auto-scroll to bottom
 	chatBox.scrollTop = chatBox.scrollHeight;
 }
 
