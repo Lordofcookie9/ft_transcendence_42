@@ -1,5 +1,6 @@
 import { setContent } from '../utility.js';
 import { route } from '../router.js';
+import { renderEntryPage } from '../pages/pages.js';
 
 export async function renderProfile() {
 	const token = localStorage.getItem('token');
@@ -102,6 +103,10 @@ export async function renderProfile() {
 		  </button>
 		  <div id="users-list" class="mt-6 max-w-2xl mx-auto"></div>
 		</div>
+
+			<button onclick="route('/home')" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded">
+			Go Play Game
+		</button>
 	  </div>
 	</div>
   `);
@@ -279,8 +284,8 @@ export async function renderProfile() {
 		  }
   
 		  localStorage.clear(); 
-		  
-		  window.location.href = '/';
+		
+		  renderEntryPage(); 
 	  } catch (err) {
 		  console.error('Logout failed:', err instanceof Error ? err.message : err);
 		  alert('Logout failed. Please try again.');

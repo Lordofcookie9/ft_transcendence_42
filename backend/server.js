@@ -304,7 +304,8 @@ const start = async () => {
       httpOnly: true,
       secure: true,
       sameSite: 'lax',
-      path: '/'
+      path: '/',
+      maxAge: 60 * 60 * 24 * 7
     });
 
     reply.send({
@@ -340,6 +341,7 @@ const start = async () => {
         httpOnly: true,
         secure: true,
         sameSite: 'lax'
+        //maxAge: 60 * 60 * 24 * 7
       });
   
       reply.send({ message: 'Logged out successfully' });

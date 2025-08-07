@@ -1,4 +1,4 @@
-import { logout } from '../users/userManagement.js';
+import { getUserInfo, logout } from '../users/userManagement.js';
 import { setContent, escapeHtml} from '../utility.js';
 import { initPongGame } from "../pong/pong.js";
 
@@ -35,7 +35,7 @@ export function renderEntryPage() {
 				</button>
 			</div>      
 			<div class="mt-8 space-y-4">
-				<h2 class="text-lg font-semibold">Continue as Visitor</h2>
+				<h2 class="text-lg font-semibold">Continue as Guest</h2>
 				<input id="aliasInput" type="text" placeholder="Enter your alias"
 					class="border border-gray-400 px-4 py-2 rounded text-black" />
 				<br />
@@ -66,6 +66,16 @@ export function renderEntryPage() {
 // --- Main Homepage ---
 export function renderHome() {
 	const alias = localStorage.getItem("alias") || "Guest";
+	let userHtml = '';
+
+	const userInfo = getUserInfo();
+	if (userInfo.type === 'loggedInUser'){
+		userHtml = `<a href="/profile" data-link class="text-blue-500 hover:underline">You are logged in</a>
+				<button type="button" id="logout" class="mt-4 bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500">
+					Logout and continue as guest
+				</button>`;
+	  }
+
 	setContent(`
 		<!-- Floating Chat Box -->
 		<div class="fixed top-4 right-4 w-80 max-w-full sm:w-72 bg-gray-800 text-white rounded shadow-lg z-50 text-sm sm:text-base">
@@ -85,6 +95,8 @@ export function renderHome() {
 
 		<div class="flex flex-col items-center mt-10 space-y-10">
 			<h1 class="text-4xl font-bold">Transcendence</h1>
+
+			${userHtml} 
 
 			<div class="flex space-x-16">
 				<div class="text-center">
@@ -108,7 +120,7 @@ export function renderHome() {
 			<span id="counterDisplay" class="text-white text-lg">...</span>
 		</div>
 	`);
-
+	document.getElementById('logout')?.addEventListener('click', logout);
 	updateChatBox();
 	setInterval(updateChatBox, 3000);
 	updateCounter(); // Fetch counter on load
@@ -149,9 +161,16 @@ export function renderLocal1v1() {
 	const p2 = localStorage.getItem("p2") || "P2";
 	const s1 = localStorage.getItem("p1Score") || "0";
 	const s2 = localStorage.getItem("p2Score") || "0";
+	let player1Html= "";
+
+	if (displayName) {
+		player1Html = `<a href="/profile" data-link class="text-blue-400 hover:underline">${p1}</a>`;
+	  } else {
+		player1Html = p1;
+	  }
 
 	setContent(`
-  <div class="relative text-center mt-10">
+  	<div class="relative text-center mt-10">
     <a href="/home" onclick="route('/home')" class="absolute top-4 left-4 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm">
       ← Home
     </a>
@@ -159,7 +178,7 @@ export function renderLocal1v1() {
     <h1 class="text-3xl font-bold mb-4">Local 1v1</h1>
 
     <div class="flex justify-between items-center max-w-6xl mx-auto mb-4 px-8 text-xl font-semibold text-white">
-      <div id="player1-info" class="text-left w-1/3">${p1}: ${s1}</div>
+      <div id="player1-info" class="text-left w-1/3">${player1Html}: ${s1}</div>
       <button id="replay-btn" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded">Replay</button>
       <div id="player2-info" class="text-right w-1/3">${p2}: ${s2}</div>
     </div>
