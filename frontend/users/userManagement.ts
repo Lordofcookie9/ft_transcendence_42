@@ -3,17 +3,15 @@ import { route } from '../router.js';
 import { renderEntryPage } from '../pages/pages.js';
 
 export async function renderProfile() {
-	const token = localStorage.getItem('token');
-	if (!token) {
+	const userId = localStorage.getItem('userId');
+	if (!userId) {
 	  alert("Please login");
 	  return route('/login');
 	}
   
 	const res = await fetch('/api/profile', {
 	  method: 'GET',
-	  headers: {
-		'Authorization': `Bearer ${token}`
-	  }
+	  credentials: 'include',
 	});
   
 	if (!res.ok) {
@@ -117,7 +115,7 @@ export async function renderProfile() {
   
 		  const res = await fetch('/api/delete-account', {
 		  method: 'DELETE',
-		  headers: { Authorization: `Bearer ${token}` }
+		  credentials: 'include',
 		  });
   
 		  if (res.ok) {
@@ -146,9 +144,9 @@ export async function renderProfile() {
 		  alert("Nothing changed.");
 		  return;
 	  }
-  
-	  const token = localStorage.getItem('token');
-	  if (!token) {
+
+	  const userId = localStorage.getItem('userId');  
+	  if (!userId) {
 		  alert("You are not authenticated.");
 		  return;
 	  }
@@ -156,9 +154,9 @@ export async function renderProfile() {
 	  try {
 		  const res = await fetch('/api/name', {
 		  method: 'PATCH',
+		  credentials: 'include',
 		  headers: {
 			  'Content-Type': 'application/json',
-			  'Authorization': `Bearer ${token}`
 		  },
 		  body: JSON.stringify({ display_name: newName })
 		  });
@@ -202,7 +200,7 @@ export async function renderProfile() {
   
 	  const res = await fetch('/api/avatar', {
 		method: 'PATCH',
-		headers: { Authorization: `Bearer ${token}` },
+		credentials: 'include',
 		body: formData
 	  });
   
@@ -222,9 +220,9 @@ export async function renderProfile() {
   
 	const form = e.target as HTMLFormElement;
 	const newName = form.display_name.value.trim();
-	const token = localStorage.getItem('token');
-  
-	if (!token) {
+	const userId = localStorage.getItem('userId');
+	
+	if (!userId) {
 	  alert("You are not authenticated.");
 	  return;
 	}
@@ -237,9 +235,9 @@ export async function renderProfile() {
 	try {
 	  const res = await fetch('/api/name', {
 		method: 'PATCH',
+		credentials: 'include',
 		headers: {
 		  'Content-Type': 'application/json',
-		  'Authorization': `Bearer ${token}`
 		},
 		body: JSON.stringify({ display_name: newName })
 	  });
@@ -262,21 +260,15 @@ export async function renderProfile() {
   export async function logout(): Promise<void> {
 	  try {
 		  const userId = localStorage.getItem('userId');
-		  const token = localStorage.getItem('token');
 		  
 		  if (!userId) {
-			  throw new Error('No user ID found');
-		  }
-		  if (!token) {
 			  alert("Please login");
 			  return route('/login');
 		  }
   
 		  const response = await fetch('/api/logout', {
-			  method: 'POST',
-			  headers: {
-				  Authorization: `Bearer ${localStorage.getItem('token')}`,
-				  },
+			method: 'POST',
+			credentials: 'include',
 			  });
   
 		  if (!response.ok) {
@@ -458,13 +450,12 @@ export async function renderUserProfile(userId: number) {
 }
 
 export function getUserInfo() {
-	const token = localStorage.getItem("token");
 	const userId = localStorage.getItem("userId");
 	const displayName = localStorage.getItem("display_name");
 	const alias = localStorage.getItem("alias");
 
-	if (token && userId) {
-		return { type: "loggedInUser", userId, displayName, token };
+	if (userId) {
+		return { type: "loggedInUser", userId, displayName};
 	} else if (alias) {
 		return { type: "visitor", alias };
 	} else {
@@ -512,8 +503,9 @@ form?.addEventListener('submit', async (e) => {
 }
 
 export function renderLogin() {
-	const token = localStorage.getItem('token');
-	if (token) {
+
+	const userId = localStorage.getItem('userId');
+	if (userId) {
 		alert("You are already logged in");
 		route('/profile');
 	}
@@ -547,7 +539,6 @@ export function renderLogin() {
 			if (res.ok) {
 
 				const data = await res.json();
-				localStorage.setItem('token', data.token);
 				localStorage.setItem('userId', data.user_id);
 				localStorage.setItem('display_name', data.display_name);
 				alert('Login successful!');

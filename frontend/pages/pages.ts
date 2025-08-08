@@ -5,11 +5,11 @@ import { initPongGame } from "../pong/pong.js";
 // --- Entry Page (landing) ---
 export function renderEntryPage() {
 	const userName = localStorage.getItem("display_name");
-	const token = localStorage.getItem('token');
+	const userId = localStorage.getItem('user.id');
 
 	let identification = "";
 
-	if (token) {
+	if (userId) {
 		identification = `
 
 			<div class="p-4">
