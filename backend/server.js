@@ -11,16 +11,12 @@ const registerUsers = require('./users');
 
 const fastifyStatic = require('@fastify/static');
 
-
 const fastify = Fastify({
-    logger: true,
-  });
-
-
+  logger: true,
+});
 
 const start = async () => {
   const db = await initDb();
-
 
   fastify.register(fastifyStatic, {
     root: path.join(__dirname, 'public'),
@@ -40,51 +36,69 @@ const start = async () => {
 
   fastify.decorate('db', db);
 
+  // users.js sets up JWT + authenticate, routes, etc.
   await registerUsers(fastify);
 
+  // ---- CHAT ----
+  // Return messages with resolved user_id (by display_name)
   fastify.get('/api/chat', async (request, reply) => {
     try {
-      const messages = await fastify.db.all('SELECT alias, message, timestamp FROM messages ORDER BY id ASC');
+      const messages = await fastify.db.all(`
+        SELECT 
+          m.alias,
+          m.message,
+          m.timestamp,
+          u.id AS user_id
+        FROM messages m
+        LEFT JOIN users u ON u.display_name = m.alias
+        ORDER BY m.id ASC
+      `);
       return messages;
     } catch (err) {
+      request.log.error(err);
       reply.code(500).send({ error: 'Failed to fetch messages' });
     }
   });
 
-  fastify.post('/api/chat', async (request, reply) => {
-  try {
-    let alias = request.body.alias;
-    const message = request.body.message;
-
+  // Only logged-in users may post; alias comes from JWT user
+  fastify.post('/api/chat', { preValidation: [fastify.authenticate] }, async (request, reply) => {
     try {
-      const user = await request.jwtVerify();
-      alias = user.display_name;
-    } catch (_) {}
+      const { message } = request.body || {};
+      if (!message || !message.trim()) {
+        return reply.code(400).send({ error: 'Missing alias or message' });
+      }
 
-    console.log("Chat message received:", { alias, message });
+      // Get display_name from DB using authenticated user id
+      const row = await fastify.db.get(
+        'SELECT display_name FROM users WHERE id = ?',
+        [request.user.id]
+      );
+      const alias = row?.display_name;
 
-    if (!alias || !message) {
-      return reply.code(400).send({ error: 'Missing alias or message' });
+      if (!alias) {
+        return reply.code(400).send({ error: 'Invalid user' });
+      }
+
+      await fastify.db.run(
+        'INSERT INTO messages (alias, message) VALUES (?, ?)',
+        [alias, message.trim()]
+      );
+
+      return { success: true };
+    } catch (err) {
+      request.log.error({ err }, 'Failed to save chat message');
+      reply.code(500).send({ error: 'Failed to save message' });
     }
+  });
 
-    await fastify.db.run(
-      'INSERT INTO messages (alias, message) VALUES (?, ?)',
-      [alias, message]
-    );
-
-    return { success: true };
-  } catch (err) {
-    console.error("Failed to save chat message:", err);
-    reply.code(500).send({ error: 'Failed to save message' });
-  }
-});
-
+  // ---- COUNTER ----
   fastify.get('/api/count', async (request, reply) => {
     const id = request.query.id;
     try {
       const row = await fastify.db.get('SELECT count FROM counters WHERE id = ?', [id]);
       return { count: row ? row.count : 0 };
     } catch (err) {
+      request.log.error(err);
       reply.code(500).send({ error: 'Failed to get count' });
     }
   });
@@ -92,15 +106,19 @@ const start = async () => {
   fastify.post('/api/increment', async (request, reply) => {
     const id = request.query.id;
     try {
-      await fastify.db.run(`
+      await fastify.db.run(
+        `
         INSERT INTO counters (id, count)
         VALUES (?, 1)
         ON CONFLICT(id) DO UPDATE SET count = count + 1
-      `, [id]);
+        `,
+        [id]
+      );
 
       const row = await fastify.db.get('SELECT count FROM counters WHERE id = ?', [id]);
       return { count: row.count };
     } catch (err) {
+      request.log.error(err);
       reply.code(500).send({ error: 'Failed to increment counter' });
     }
   });

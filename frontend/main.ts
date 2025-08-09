@@ -70,14 +70,14 @@ window.addEventListener('popstate', () => {
 //   if (sessionStorage.getItem('isReloading')) {
 //     return;
 //   }
-
+//
 //   if (userId) {
 //     const data = new FormData();
 //     data.append('userId', userId);
-
+//
 //     navigator.sendBeacon('/api/logout', data);
 //   }
-
+//
 //   localStorage.removeItem('token');
 //   localStorage.removeItem('userId');
 //   localStorage.removeItem('alias');
@@ -90,26 +90,29 @@ handleLocation();
 // Global bindings
 (window as any).route = route;
 (window as any).renderUsers = renderUserList;
+
+// Block visitors from posting; backend derives alias from JWT
 (window as any).submitMessage = async function () {
-	const input = document.getElementById('messageInput') as HTMLInputElement;
-	const message = input?.value.trim();
-	if (!message) return;
+  const input = document.getElementById('messageInput') as HTMLInputElement;
+  const message = input?.value.trim();
+  if (!message) return;
 
-	const token = localStorage.getItem("token");
-	const alias = localStorage.getItem("alias");
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",              // send the JWT cookie
+    body: JSON.stringify({ message }),   // server derives alias from JWT
+  });
 
-	const payload = token
-		? { message } // Logged-in user: alias comes from JWT
-		: { alias: alias || "Guest", message }; // Visitor: send alias manually
+  if (res.status === 401) {
+    alert("Please log in to use the chat.");
+    return;
+  }
+  if (!res.ok) {
+    alert("Failed to send message.");
+    return;
+  }
 
-	await fetch("/api/chat", {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify(payload),
-	});
-
-	input.value = "";
-	updateChatBox();
+  input.value = "";
+  updateChatBox();
 };

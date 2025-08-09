@@ -69,6 +69,7 @@ export function renderHome() {
 	let userHtml = '';
 
 	const userInfo = getUserInfo();
+
 	if (userInfo.type === 'loggedInUser'){
 		userHtml = `<a href="/profile" data-link class="text-blue-500 hover:underline">You are logged in</a>
 				<button type="button" id="logout" class="mt-4 bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500">
@@ -82,9 +83,12 @@ export function renderHome() {
 			<div class="p-2 border-b border-gray-700 font-semibold">Chat Room</div>
 			<div id="chatBox" class="p-2 h-60 sm:h-52 overflow-y-auto text-sm break-words"></div>
 			<div class="p-2 flex gap-1">
-				<input id="messageInput" placeholder="Message" class="flex-1 px-2 py-1 rounded text-black"
+				<input id="messageInput"
+					placeholder="Log in to chat"
+					disabled
+					class="flex-1 px-2 py-1 rounded text-black"
 					onkeydown="if(event.key === 'Enter'){ submitMessage(); }" />
-				<button onclick="submitMessage()" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded">Send</button>
+				<button onclick="submitMessage()" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded" disabled title="Log in to use the chat">Send</button>
 			</div>
 		</div>
 
@@ -120,6 +124,28 @@ export function renderHome() {
 			<span id="counterDisplay" class="text-white text-lg">...</span>
 		</div>
 	`);
+
+	// Enable chat controls if the user is authenticated (JWT cookie)
+	(async () => {
+		try {
+			const resp = await fetch('/api/profile', { credentials: 'include' });
+			if (resp.ok) {
+				const input = document.getElementById('messageInput') as HTMLInputElement | null;
+				const btn = document.querySelector('button[onclick="submitMessage()"]') as HTMLButtonElement | null;
+				if (input) {
+					input.removeAttribute('disabled');
+					input.placeholder = 'Message';
+				}
+				if (btn) {
+					btn.removeAttribute('disabled');
+					btn.removeAttribute('title');
+				}
+			}
+		} catch (_) {
+			// remain disabled if not authenticated
+		}
+	})();
+
 	document.getElementById('logout')?.addEventListener('click', logout);
 	updateChatBox();
 	setInterval(updateChatBox, 3000);
@@ -144,11 +170,14 @@ export async function getMessages(): Promise<any[]> {
 	return await res.json();
 }
 
+// Keep this function but note: backend now requires auth and derives alias.
+// If you call this elsewhere, it should be from a logged-in state.
 export async function sendMessage(alias: string, message: string): Promise<any> {
 	const res = await fetch('/api/chat', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ alias, message })
+		credentials: 'include',                 // make sure cookie goes with it
+		body: JSON.stringify({ message })       // alias ignored; server uses JWT user
 	});
 	return await res.json();
 }
@@ -259,8 +288,8 @@ export async function updateChatBox() {
 
 		const isRegisteredUser = knownUserSet?.has(msg.alias);
 
-		const aliasHTML = isRegisteredUser
-			? `<a href="/profile/${msg.alias}" data-link class="text-blue-400 hover:underline">${msg.alias}</a>`
+		const aliasHTML = (isRegisteredUser && msg.user_id)
+			? `<a href="/profile/${msg.user_id}" data-link class="text-blue-400 hover:underline">${msg.alias}</a>`
 			: `<strong>${msg.alias}</strong>`;
 
 		return `<div><span class="text-gray-400">[${timestamp}]</span> ${aliasHTML}: ${msg.message}</div>`;
