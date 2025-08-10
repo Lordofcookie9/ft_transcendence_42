@@ -560,7 +560,7 @@ export function renderLogin() {
 	if (!text || !text.trim()) return;
 	try {
 		await sendPrivateMessage(userId, text.trim());
-		await updateChatBox();
+		route('/home');
 	} catch (e) {
 		alert('Failed to send private message');
 		console.error(e);
