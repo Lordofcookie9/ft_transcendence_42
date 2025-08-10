@@ -33,7 +33,7 @@ export function renderEntryPage() {
 				<button onclick="route('/login')" class="bg-gray-600 text-white px-6 py-3 rounded hover:bg-gray-700">
 					Login
 				</button>
-			</div>      
+			</div>	  	
 			<div class="mt-8 space-y-4">
 				<h2 class="text-lg font-semibold">Continue as Guest</h2>
 				<input id="aliasInput" type="text" placeholder="Enter your alias"
@@ -182,8 +182,17 @@ export async function sendMessage(alias: string, message: string): Promise<any> 
 	return await res.json();
 }
 
-// --- Page Stubs ---
+export async function sendPrivateMessage(recipientId: number, message: string): Promise<any> {
+	const res = await fetch('/api/chat/private', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'include',
+		body: JSON.stringify({ recipient_id: recipientId, message })
+	});
+	return await res.json();
+}
 
+// --- Page Stubs ---
 export function renderLocal1v1() {
 	const displayName = localStorage.getItem("display_name");
 	const p1 = displayName || localStorage.getItem("p1") || "P1";
@@ -230,7 +239,7 @@ export function renderLocal1v1() {
 			const container = document.getElementById("pong-root");
 			if (container) initPongGame(container);
 		};
-}
+	}
 }
 
 export function renderGame() {

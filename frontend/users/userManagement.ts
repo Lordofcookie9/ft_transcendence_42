@@ -1,5 +1,8 @@
+import { sendPrivateMessage, updateChatBox } from '../pages/pages.js';
 import { setContent } from '../utility.js';
 import { route } from '../router.js';
+
+
 import { renderEntryPage } from '../pages/pages.js';
 
 export async function renderProfile() {
@@ -151,8 +154,7 @@ export async function renderProfile() {
 		  return;
 	  }
   
-	  try {
-		  const res = await fetch('/api/name', {
+	  try {const res = await fetch('/api/name', {
 		  method: 'PATCH',
 		  credentials: 'include',
 		  headers: {
@@ -232,8 +234,7 @@ export async function renderProfile() {
 	  return;
 	}
   
-	try {
-	  const res = await fetch('/api/name', {
+	try {const res = await fetch('/api/name', {
 		method: 'PATCH',
 		credentials: 'include',
 		headers: {
@@ -258,8 +259,7 @@ export async function renderProfile() {
   });
   
   export async function logout(): Promise<void> {
-	  try {
-		  const userId = localStorage.getItem('userId');
+	  try {const userId = localStorage.getItem('userId');
 		  
 		  if (!userId) {
 			  alert("Please login");
@@ -292,8 +292,7 @@ export async function renderUserList() {
 
 	const currUser = getUserInfo();
 
-	try {
-		const res = await fetch('/api/users');
+	try {const res = await fetch('/api/users');
 
 		const users = await res.json();
 		if (!users.length) {
@@ -354,8 +353,7 @@ export async function renderUserProfile(userId: number) {
 	
 	setContent(`<div class="text-center text-xl">Loading profile...</div>`);
 
-	try {
-		const res = await fetch(`/api/user/${userId}`);
+	try {const res = await fetch(`/api/user/${userId}`);
 		if (!res.ok) throw new Error("User not found");
 		const { user, stats } = await res.json();
 		const formatDate = (d: string) => new Date(d).toLocaleString();
@@ -388,6 +386,7 @@ export async function renderUserProfile(userId: number) {
 							<button class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded" onclick="window.acceptFriend(${user.id})">Accept</button>
 							<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
 							<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+							<button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
 						</div>`}
 					else if (user.friend_status === "pending"){
 							friendButtons = `
@@ -396,6 +395,7 @@ export async function renderUserProfile(userId: number) {
 								<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Cancel request</button>
 								<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
 								<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+								<button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>	
 							</div>`}
 					else if (user.friend_status === "accepted" || user.friend_status === "added") {
 						friendButtons = `
@@ -404,6 +404,7 @@ export async function renderUserProfile(userId: number) {
 							<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Unfriend</button>
 							<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
 							<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+							<button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
 						</div>`}
 						else if (user.friend_status === "blocked"){
 									friendButtons = `
@@ -416,6 +417,7 @@ export async function renderUserProfile(userId: number) {
 									<button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded" onclick="window.addFriend(${user.id})">Add Friend</button>
 									<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
 									<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+									<button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
 								</div>`}
 				 }
 				 else {
@@ -482,8 +484,7 @@ form?.addEventListener('submit', async (e) => {
 
 	const formData = new FormData(form);
 
-	try {
-		const res = await fetch('/api/register', {
+	try {const res = await fetch('/api/register', {
 			method: 'POST',
 			body: formData
 		});
@@ -529,8 +530,7 @@ export function renderLogin() {
 			password: formData.get('password')?.toString().trim()
 		};
 
-		try {
-			const res = await fetch('/api/login', {
+		try {const res = await fetch('/api/login', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(payload)
@@ -553,3 +553,16 @@ export function renderLogin() {
 		}
 	});
 }
+// Simple prompt-based private chat starter
+(window as any).startPrivateChat = async (userId: number, displayName?: string) => {
+	const toName = displayName ? ` to ${displayName}` : '';
+	const text = prompt(`Send a private message${toName}:`);
+	if (!text || !text.trim()) return;
+	try {
+		await sendPrivateMessage(userId, text.trim());
+		await updateChatBox();
+	} catch (e) {
+		alert('Failed to send private message');
+		console.error(e);
+	}
+};

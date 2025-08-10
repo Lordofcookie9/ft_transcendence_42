@@ -82,7 +82,20 @@ async function initDb() {
       )
     `);
 
-    await db.exec('COMMIT');
+    
+
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS private_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_id INTEGER NOT NULL,
+        recipient_id INTEGER NOT NULL,
+        message TEXT NOT NULL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+await db.exec('COMMIT');
   } catch (err) {
     await db.exec('ROLLBACK');
     throw err;
