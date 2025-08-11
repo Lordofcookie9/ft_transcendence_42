@@ -4,7 +4,7 @@ import { initPongGame } from "../pong/pong.js";
 
 // --- Entry Page (landing) ---
 export function renderEntryPage() {
-	const userName = localStorage.getItem("display_name");
+	const userName = localStorage.getItem("displayName");
 	const userId = localStorage.getItem('user.id');
 
 	let identification = "";
@@ -70,6 +70,12 @@ export function renderHome() {
 
 	const userInfo = getUserInfo();
 
+	try { localStorage.removeItem('game.inProgress'); } catch {}
+	// Restore default body layout after tournament
+	document.body.style.display = '';
+	document.body.style.height = '';
+	document.body.style.alignItems = '';
+	document.body.style.justifyContent = '';
 	if (userInfo.type === 'loggedInUser'){
 		userHtml = `<a href="/profile" data-link class="text-blue-500 hover:underline">You are logged in</a>
 				<button type="button" id="logout" class="mt-4 bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500">
@@ -113,7 +119,7 @@ export function renderHome() {
 
 				<div class="text-center">
 					<h2 class="text-xl font-semibold mb-2">Tournament (up to 8 players)</h2>
-					<button class="bg-gray-600 text-white px-4 py-2 rounded opacity-50 cursor-not-allowed">Local</button>
+					<button onclick="startTournamentSetup()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Local Tournament</button>
 				</div>
 			</div>
 		</div>
@@ -193,54 +199,59 @@ export async function sendPrivateMessage(recipientId: number, message: string): 
 }
 
 // --- Page Stubs ---
-export function renderLocal1v1() {
-	const displayName = localStorage.getItem("display_name");
-	const p1 = displayName || localStorage.getItem("p1") || "P1";
-	const p2 = localStorage.getItem("p2") || "P2";
-	const s1 = localStorage.getItem("p1Score") || "0";
-	const s2 = localStorage.getItem("p2Score") || "0";
-	let player1Html= "";
+export async function renderLocal1v1() {
+  // Use Option A layout override and mark 1v1 in progress
+  document.body.style.display = 'block';
+  document.body.style.height = 'auto';
+  document.body.style.alignItems = '';
+  document.body.style.justifyContent = '';
+  try { localStorage.setItem('game.inProgress', 'local'); } catch {}
 
-	if (displayName) {
-		player1Html = `<a href="/profile" data-link class="text-blue-400 hover:underline">${p1}</a>`;
-	  } else {
-		player1Html = p1;
-	  }
+  // Left = opponent alias (p1), Right = you (p2).
+  const leftName  = localStorage.getItem("p1") || "P1";
+  const rightName = localStorage.getItem("p2") || (localStorage.getItem("display_name") || localStorage.getItem("alias") || "P2");
+  const s1 = localStorage.getItem("p1Score") || "0";
+  const s2 = localStorage.getItem("p2Score") || "0";
 
-	setContent(`
-  	<div class="relative text-center mt-10">
-    <a href="/home" onclick="route('/home')" class="absolute top-4 left-4 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm">
-      ← Home
-    </a>
+  setContent(`
+    <div class="relative text-center mt-10">
+      <a href="/home" onclick="route('/home')" class="absolute top-0 left-0 ml-4 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm">← Home</a>
+      <h1 class="text-3xl font-bold mb-4">Local 1v1</h1>
 
-    <h1 class="text-3xl font-bold mb-4">Local 1v1</h1>
+      <div class="flex justify-between items-center max-w-6xl mx-auto mb-4 px-8 text-xl font-semibold text-white">
+        <div id="player1-info" class="text-left w-1/3">${escapeHtml(leftName)}: ${escapeHtml(s1)}</div>
+        <button id="replay-btn" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded">Replay</button>
+        <div id="player2-info" class="text-right w-1/3">${escapeHtml(rightName)}: ${escapeHtml(s2)}</div>
+      </div>
 
-    <div class="flex justify-between items-center max-w-6xl mx-auto mb-4 px-8 text-xl font-semibold text-white">
-      <div id="player1-info" class="text-left w-1/3">${player1Html}: ${s1}</div>
-      <button id="replay-btn" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded">Replay</button>
-      <div id="player2-info" class="text-right w-1/3">${p2}: ${s2}</div>
+      <div class="flex justify-center">
+        <div id="pong-root" class="border-2 border-white bg-black"></div>
+      </div>
     </div>
+  `);
 
-    <div class="flex justify-center">
-      <div id="pong-root" class="border-2 border-white bg-black"></div>
-    </div>
-  </div>
-`);
+  const container = document.getElementById("pong-root");
+  if (container) {
+    initPongGame(container, () => {
+      // 1v1 finished — clear the flag
+      try { localStorage.removeItem('game.inProgress'); } catch {}
+    });
+  }
 
-	const container = document.getElementById("pong-root");
-	if (container) {
-		initPongGame(container);
-	}
-	const replayBtn = document.getElementById("replay-btn");
-	if (replayBtn) {
-		replayBtn.onclick = () => {
-			localStorage.setItem("p1Score", "0");
-			localStorage.setItem("p2Score", "0");
-			const container = document.getElementById("pong-root");
-			if (container) initPongGame(container);
-		};
-	}
+  const replayBtn = document.getElementById("replay-btn") as HTMLButtonElement | null;
+  if (replayBtn) {
+    replayBtn.onclick = () => {
+      localStorage.setItem("p1Score", "0");
+      localStorage.setItem("p2Score", "0");
+      const container = document.getElementById("pong-root");
+      if (container) initPongGame(container);
+    };
+  }
+
+  // Explicitly mark tournament UI inactive when in 1v1
+  try { (window as any).tournament && ((window as any).tournament.uiActive = false); } catch {}
 }
+
 
 export function renderGame() {
 	setContent('<div class="p-4">Game Placeholder (WIP)</div>');
@@ -274,7 +285,7 @@ async function loadKnownUsers() {
 	try {
 		const res = await fetch('/api/users');
 		const users = await res.json();
-		knownUserSet = new Set(users.map((u: any) => u.display_name));
+		knownUserSet = new Set(users.map((u: any) => u.displayName));
 	} catch (err) {
 		console.error("Failed to load known users", err);
 		knownUserSet = new Set(); // fallback
@@ -313,4 +324,62 @@ export async function updateCounter() {
 	const res = await fetch("/api/count?id=main-counter");
 	const data = await res.json();
 	span.textContent = data.count;
+}
+
+export async function renderTournament() {
+  // Mark UI active so pong:gameend listener advances bracket.
+  try { (window as any).tournament && ((window as any).tournament.uiActive = true); } catch {}
+
+  const s1 = localStorage.getItem("p1Score") || "0";
+  const s2 = localStorage.getItem("p2Score") || "0";
+  const leftName  = localStorage.getItem("p1") || "—";
+  const rightName = localStorage.getItem("p2") || "—";
+
+  //ensure ui for tournament.
+  document.body.style.display = 'block';
+  document.body.style.height = 'auto';
+  document.body.style.alignItems = '';
+  document.body.style.justifyContent = '';
+  try { localStorage.setItem('game.inProgress', 'tournament'); } catch {}
+
+  setContent(`
+    <div class="relative mt-10 min-h-screen text-white">
+      <a href="/home" onclick="route('/home')" class="absolute top-0 left-0 ml-4 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm">← Home</a>
+      <h1 class="text-3xl font-bold mb-4 text-center">Local Tournament</h1>
+
+      <!-- Sticky player header -->
+      <div id="scorebar" class="sticky top-0 z-20 bg-black/70 backdrop-blur supports-[backdrop-filter]:bg-black/50 py-2">
+        <div class="flex justify-between items-center max-w-6xl mx-auto px-8 text-xl font-semibold">
+          <div id="player1-info" class="text-left w-1/3">${escapeHtml(leftName)}: ${escapeHtml(s1)}</div>
+          <div class="text-gray-300 text-base">Current Match</div>
+          <div id="player2-info" class="text-right w-1/3">${escapeHtml(rightName)}: ${escapeHtml(s2)}</div>
+        </div>
+      </div>
+
+      <div id="pong-wrap" class="flex justify-center pt-4">
+        <div id="pong-root" class="border-2 border-white bg-black"></div>
+      </div>
+
+      <div class="max-w-6xl mx-auto text-left mt-8">
+        <div class="text-sm text-gray-300 mb-2">tournament state:</div>
+        <div class="rounded-lg border border-white/10 bg-black/30 p-3">
+          <div id="tournament-state"
+               class="overflow-x-auto overflow-y-auto text-sm leading-6 space-y-4 max-h-[45vh]"
+               style="max-height:45vh;"></div>
+        </div>
+      </div>
+    </div>
+  `);
+
+  // IMPORTANT: nuke any inline styles left by previous dynamic offset code
+  document.getElementById('pong-wrap')?.removeAttribute('style');
+
+  const container = document.getElementById("pong-root");
+  if (container) {
+    // Rely on the global 'pong:gameend' listener gated by uiActive.
+    initPongGame(container);
+  }
+
+  // Render current bracket
+  try { (window as any).updateTournamentStateDOM?.(); } catch {}
 }
