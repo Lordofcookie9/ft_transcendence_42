@@ -4,16 +4,39 @@ import { togglePause } from "./gameState.js";
 
 export const keysPressed: { [key: string]: boolean } = {};
 
+let keydownHandler: ((e: KeyboardEvent) => void) | null = null;
+let keyupHandler: ((e: KeyboardEvent) => void) | null = null;
+
+
 export function setupControls() {
-	window.addEventListener('keydown', (e) => {
-		keysPressed[e.key] = true;
-		if (e.key === 'p' || e.key === 'P') {
-			togglePause();
-		}
-	});
-	window.addEventListener('keyup', (e) => {
-		keysPressed[e.key] = false;
-	});
+  // avoid double-binding
+  if (keydownHandler && keyupHandler) return;
+
+  keydownHandler = (e: KeyboardEvent) => {
+    keysPressed[e.key] = true;
+    if (e.key === 'p' || e.key === 'P') togglePause();
+  };
+
+  keyupHandler = (e: KeyboardEvent) => {
+    keysPressed[e.key] = false;
+  };
+
+  // non-null assertion (!) — we just assigned them above
+  window.addEventListener('keydown', keydownHandler!);
+  window.addEventListener('keyup', keyupHandler!);
+}
+
+export function teardownControls() {
+  if (keydownHandler) {
+    window.removeEventListener('keydown', keydownHandler);
+    keydownHandler = null;
+  }
+  if (keyupHandler) {
+    window.removeEventListener('keyup', keyupHandler);
+    keyupHandler = null;
+  }
+  // clear sticky keys between games
+  for (const k of Object.keys(keysPressed)) delete keysPressed[k];
 }
 
 export function updatePaddle(
