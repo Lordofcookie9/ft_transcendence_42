@@ -1,4 +1,14 @@
-import { Ball } from "./Ball.js";
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   Wall.ts                                            :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: rrichard <rrichard@student.42.fr>          +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/08/12 17:29:33 by rrichard          #+#    #+#             */
+/*   Updated: 2025/08/12 17:29:34 by rrichard         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
 
 export class Wall {
 	constructor(
@@ -35,8 +45,5 @@ export class Wall {
 			rectLeft < wallRight &&
 			rectRight > wallLeft
 		);
-	}
-	getY(): number {
-		return this.y;
 	}
 }

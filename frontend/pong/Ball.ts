@@ -1,3 +1,15 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   Ball.ts                                            :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: rrichard <rrichard@student.42.fr>          +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/08/12 17:38:05 by rrichard          #+#    #+#             */
+/*   Updated: 2025/08/12 17:38:43 by rrichard         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 export class Ball {
     constructor(
         public x: number,
@@ -8,21 +20,34 @@ export class Ball {
         public vy: number = 0
     ) {}
 
-    draw(ctx: CanvasRenderingContext2D) {
+    draw(ctx: CanvasRenderingContext2D)
+	{
         ctx.fillStyle = this.color;
         ctx.fillRect(this.x, this.y, this.size, this.size);
     }
 
-    update(canvas: HTMLCanvasElement) {
+    update(minY: number, maxY: number)
+	{
         this.x += this.vx;
         this.y += this.vy;
 
-        if (this.y < 0 || this.y + this.size > canvas.height) {
-            this.vy = -this.vy;
+        const top = minY;
+		const bottom = maxY - this.size;
 
-			if (Math.abs(this.vy) < 1)
-				this.vy = (this.vy < 0 ? -1 : 1) * 2;
-        }
+		if (this.y <= top)
+		{
+			this.y = top;
+			this.vy = Math.abs(this.vy);
+			if (Math.abs(this.vy) < 2)
+				this.vy = 2;
+		}
+		else if (this.y >= bottom)
+		{
+			this.y = bottom;
+			this.vy = -Math.abs(this.vy);
+			if (Math.abs(this.vy) < 2)
+				this.vy = -2;
+		}
     }
 }
 

@@ -5,28 +5,172 @@ import { route } from '../router.js';
 
 import { renderEntryPage } from '../pages/pages.js';
 
-export async function renderProfile() {
-	const userId = localStorage.getItem('userId');
-	if (!userId) {
-	  alert("Please login");
-	  return route('/login');
-	}
-  
-	const res = await fetch('/api/profile', {
-	  method: 'GET',
-	  credentials: 'include',
+
+export async function renderRegister() {
+	setContent(`
+		<h1>Create Account</h1>
+		<form id="register-form" class="flex flex-col gap-2 mt-4">
+			<input name="display_name" type="text" placeholder="Public Name" required minlength="1" class="p-2 border text-black" />
+			<input name="email" type="email" placeholder="Email" required class="p-2 border text-black" />
+			<input name="password" type="password" placeholder="Password" required minlength="8" pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[@$!%*?&amp;]).{8,}$"
+ 				title="Must contain at least 8 characters, one uppercase, one lowercase, one number, and one special character '@$!%*?'" class="p-2 border text-black" />
+			<input name="avatar" type="file" accept="image/*" class="p-2 border" />
+
+			<label class="flex items-center gap-2">
+				<input type="checkbox" id="enable-2fa" /> Enable 2FA
+			</label>
+
+			<div id="2fa-options" class="hidden flex-col gap-2 border p-2">
+				<label>
+					<input type="radio" name="twofa_method" value="email" /> Email
+				</label>
+				<label>
+					<input type="radio" name="twofa_method" value="app" /> Authenticator App
+				</label>
+			</div>
+
+			<button type="submit" class="bg-green-600 text-white px-4 py-2">Register</button>
+		</form>
+	`);
+
+	const form = document.getElementById('register-form') as HTMLFormElement;
+	const enable2FA = document.getElementById('enable-2fa') as HTMLInputElement;
+	const twoFAOptions = document.getElementById('2fa-options') as HTMLDivElement;
+	let twofaVerified :number = 0;
+	
+	enable2FA?.addEventListener('change', () => {
+		twoFAOptions.classList.toggle('hidden', !enable2FA.checked);
 	});
-  
-	if (!res.ok) {
-	  setContent(`<div class="text-white-600">Not authorized to view this page.</div>`);
-	  return;
-	}
-  
-	const user = await res.json();
-	localStorage.setItem("userId", user.id);
-	localStorage.setItem("display_name", user.display_name);
-  
-	  setContent(`
+
+	form?.addEventListener('submit', async (e) => {
+		e.preventDefault();
+
+		const email = (form.querySelector('[name="email"]') as HTMLInputElement).value.trim();
+		const twofaMethod = enable2FA.checked ? 
+			(form.querySelector('[name="twofa_method"]:checked') as HTMLInputElement)?.value : null;
+
+		const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+		if (enable2FA.checked && !twofaMethod) {
+			alert('Please select a 2FA method.');
+			return;
+		}
+		
+		if (twofaMethod === 'email' && !emailPattern.test(email)) {
+			alert('Valid email required for Email 2FA.');
+			return;
+		}
+
+		if (twofaMethod === 'email') {
+			const res = await fetch('/api/2fa/send-code', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ twofaMethod, email }),
+			});
+
+			if (res.ok) {
+				const code = prompt(`Enter the code sent to your Email`);
+				if (code) {
+					const verifyRes = await fetch('/api/2fa/verify-code', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ twofaMethod, email, code}),
+					});
+					if (verifyRes.ok) {
+						alert('Contact verified!');
+						twofaVerified = 1;
+					} else {
+						alert('Verification failed. Please check your email address.');
+					}
+				} else {
+					alert('Your browser seems busy. Try later.');
+				}
+			} else {
+				alert('Error sending verification code. Try later.');
+			}
+		}
+		
+		if (twofaMethod === 'app') {
+			const setupRes = await fetch('/api/2fa/send-code', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ twofaMethod, email })
+			});
+		
+			if (setupRes.ok) {
+				const { qrCodeDataURL } = await setupRes.json();
+		
+				let qrWindow = window.open('', 'QR Code', 'width=500,height=600,resizable=yes');
+
+				if (qrWindow) {
+					qrWindow.document.open();
+					qrWindow.document.write(`<h3>Scan this in your Authenticator App</h3>`);
+					qrWindow.document.write(`<img src="${qrCodeDataURL}" />`);
+					qrWindow.document.close();
+					qrWindow.focus();
+				}
+
+				const code = prompt(`Enter the 6-digit code from your Authenticator App`);
+				if (code) {
+					const verifyRes = await fetch('/api/2fa/verify-code', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ twofaMethod, email, code }),
+					});
+					if (verifyRes.ok) {
+						alert('Authenticator set up successfully!');
+						twofaVerified = 1;
+					} else {
+						alert('Verification failed.');
+					}
+				}
+			} else {
+				alert('Error setting up Authenticator App. Try later.');
+			}
+		}
+
+		if (enable2FA.checked && twofaVerified !== 1) {
+			alert('Please complete 2FA verification before registering.');
+			return;
+		  }
+
+		const formData = new FormData(form);
+		if (enable2FA.checked) {
+			formData.set('enable_2fa', 'true');}
+		else {
+			formData.set('enable_2fa', 'false');}
+		// if (!enable2FA.checked){
+			
+		if (enable2FA.checked && twofaMethod) {
+			formData.set('twofa_method', twofaMethod);
+			formData.set('twofa_verified', String(twofaVerified));
+		  }
+
+		try {
+			const res = await fetch('/api/register', {
+				method: 'POST',
+				body: formData
+			});
+
+			if (res.ok) {
+				alert('Account created!');
+				const user = await res.json();
+				localStorage.setItem("userId", user.id);
+				localStorage.setItem("display_name", user.display_name);
+				await route('/profile');
+			} else {
+				const msg = await res.text();
+				alert('Error: ' + msg);
+			}
+		} catch (err) {
+			console.error(err);
+			alert(err instanceof Error ? err.message : 'Network error');
+		}
+	})
+}
+
+function renderProfileHTML(user: User) {
+	return `
 	<div class="flex justify-between items-start p-4">
 	  <a href="/" onclick="route('/')" class="text-gray-400 hover:text-white">Home</a>
 	</div>
@@ -82,6 +226,33 @@ export async function renderProfile() {
   
 	  <div class="text-center max-w-xs mx-auto space-y-1">
 		<p class="text-sm text-gray-500">${user.email}</p>
+			<form id="email-form" class="flex items-center space-x-2 max-w-xs mx-auto">
+				<input type="email" name="email" placeholder="Enter new email" value="${user.email}" class="flex-grow p-1 border border-gray-300 rounded text-gray-600 text-sm" />
+				<button type="submit" class="text-xs text-gray-700 bg-gray-100 rounded px-3 py-1 hover:bg-gray-200">Change email</button>
+			</form>
+
+		<p class="text-sm text-gray-500">
+		${user.twofa_enabled 
+		? `You are using 2FA ${user.twofa_method === 'email' ? 'email authentification' : 'Authenticator App'}` 
+		: 'You are not using 2FA authentification'}
+		</p>
+	<div class="max-w-xs mx-auto border p-3 rounded bg-gray-50  text-gray-700">
+
+		<label class="flex items-center gap-2 mb-2">
+			<input type="checkbox" id="enable-2fa" ${user.twofa_enabled ? "checked" : ""}/>
+			<span>Enable 2FA</span>
+			${user.twofa_verified ? `<span class="text-green-600 text-sm">✅ Verified</span>` : ""}
+		</label>
+		<div id="2fa-options" class="${user.twofa_enabled ? "" : "hidden"} flex flex-col gap-2">
+			<label>
+				<input type="radio" name="twofa_method" value="email" ${user.twofa_method === 'email' ? "checked" : ""}/> Email
+				<input type="radio" name="twofa_method" value="app" ${user.twofa_method === 'app' ? "checked" : ""}/> Authenticator App
+			</label>
+			<button id="save-2fa" class="mt-2 bg-blue-500 text-white px-3 py-1 rounded text-sm">Save 2FA Settings</button>
+		</div>
+	</div>
+
+
 		<span class="inline-block text-xs px-2 py-1 rounded-full ${
 		  user.account_status === 'online'
 			? 'bg-green-200 text-green-800'
@@ -110,10 +281,13 @@ export async function renderProfile() {
 		</button>
 	  </div>
 	</div>
-  `);
-  
-	  document.getElementById('logout')?.addEventListener('click', logout);
-	  document.getElementById('delete-profile-btn')?.addEventListener('click', async () => {
+  `;
+}
+
+function setProfileEvents(user: User) {
+
+	document.getElementById('logout')?.addEventListener('click', logout);
+	document.getElementById('delete-profile-btn')?.addEventListener('click', async () => {
 		  if (!confirm('Are you sure you want to delete your profile?')) return;
   
 		  const res = await fetch('/api/delete-account', {
@@ -131,7 +305,7 @@ export async function renderProfile() {
 		  }
 	  });
   
-	   document.getElementById('name-form')?.addEventListener('submit', async (e) => {
+	document.getElementById('name-form')?.addEventListener('submit', async (e) => {
 		e.preventDefault();
   
 	  const form = e.target as HTMLFormElement;
@@ -145,12 +319,6 @@ export async function renderProfile() {
   
 	  if (newName === originalName) {
 		  alert("Nothing changed.");
-		  return;
-	  }
-
-	  const userId = localStorage.getItem('userId');  
-	  if (!userId) {
-		  alert("You are not authenticated.");
 		  return;
 	  }
   
@@ -214,50 +382,185 @@ export async function renderProfile() {
 		alert('Error: ' + msg);
 	  }
 	});
-  }
-  
-  // Name update
-  document.getElementById('name-form')?.addEventListener('submit', async (e) => {
-	e.preventDefault();
-  
-	const form = e.target as HTMLFormElement;
-	const newName = form.display_name.value.trim();
-	const userId = localStorage.getItem('userId');
+
+	// Email update
+	document.getElementById('email-form')?.addEventListener('submit', async (e) => {
+			e.preventDefault();
+			const newEmail = (e.target as HTMLFormElement).email.value.trim();
+			if (!newEmail) return alert("Email cannot be empty");
 	
-	if (!userId) {
-	  alert("You are not authenticated.");
-	  return;
-	}
-  
-	if (!newName) {
-	  alert("Display name cannot be empty.");
-	  return;
-	}
-  
-	try {const res = await fetch('/api/name', {
-		method: 'PATCH',
-		credentials: 'include',
-		headers: {
-		  'Content-Type': 'application/json',
-		},
-		body: JSON.stringify({ display_name: newName })
-	  });
-  
-	  if (res.ok) {
-		const result = await res.json();
-		localStorage.setItem('display_name', result.user.display_name);
-		alert('Name updated!');
+			const res = await fetch('/api/email', {
+				method: 'PATCH',
+				credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email: newEmail })
+			});
+			if (res.ok) {
+				if (user.twofa_method === 'email') {
+					alert('Email changed, please login again.');
+					localStorage.clear(); 
+					route('/login');
+				}
+				else {
+					alert('Email updated!');
+					renderProfile();}
+			} else {
+				alert(await res.text());
+			}
+		});
+	
+	// 2fa update
+	const enable2FA = document.getElementById('enable-2fa') as HTMLInputElement;
+	const twoFAOptions = document.getElementById('2fa-options') as HTMLDivElement;
+	//twoFAOptions.classList.toggle('hidden', !enable2FA.checked);
+
+	enable2FA?.addEventListener('change', async() => {
+		twoFAOptions.classList.toggle('hidden', !enable2FA.checked);
+
+		if (!enable2FA.checked && user.twofa_enabled ){
+			try {const res = await fetch('/api/2fa/change', {
+				method: 'PATCH',
+				credentials: 'include',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({ twofaMethod: null, email: user.email})
+				});
+				if (res.ok) {
+				alert('2FA methode updated!');
+				renderProfile();
+				} else {
+				const msg = await res.text();
+				alert('Error: ' + msg);
+				}
+				
+			} catch (err) {
+				console.error(err);
+				alert("Can not update your profile.");
+			}
 		renderProfile();
-	  } else {
-		const msg = await res.text();
-		alert('Error: ' + msg);
-	  }
-	} catch (err) {
-	  alert("Something went wrong while updating your profile.");
-	  console.error(err);
+		}
+	});
+
+	document.getElementById('save-2fa')?.addEventListener('click', async () => {
+
+	const method = (document.querySelector('[name="twofa_method"]:checked') as HTMLInputElement)?.value;
+	if (!method) return alert('Please select a 2FA method.');
+
+	if (enable2FA.checked && user.twofa_enabled && method === user.twofa_method) {
+		return alert("Nothing changed.");
 	}
-  });
+
+	if (!enable2FA.checked && !user.twofa_enabled) {
+		return alert("Nothing changed.");
+	}
+
+	let res: Response | null = null;
+
+	if (enable2FA.checked && (method === 'email' || method === 'app')) {
+		
+		res = await fetch('/api/2fa/send-code', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ twofaMethod: method , email: user.email })
+		});
+
+		if (res && res.ok) {
+			if (method === 'app') {
+
+				const { qrCodeDataURL } = await res.json();
+				let qrWindow = window.open('', 'QR Code', 'width=500,height=600,resizable=yes');
+
+				if (qrWindow) {
+					qrWindow.document.open();
+					qrWindow.document.write(`<h3>Scan this in your Authenticator App</h3>`);
+					qrWindow.document.write(`<img src="${qrCodeDataURL}" />`);
+					qrWindow.document.close();
+					qrWindow.focus();
+				}	
+			}
+			const code = prompt('Enter the verification code :');
+			if (code) {
+				const verifyRes = await fetch('/api/2fa/verify-code', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ twofaMethod: method, email: user.email, code })
+				});
+			
+				if (verifyRes.ok) {
+				try {const res = await fetch('/api/2fa/change', {
+					method: 'PATCH',
+					credentials: 'include',
+					headers: {
+						'Content-Type': 'application/json',
+					},
+					body: JSON.stringify({ twofaMethod: method, email: user.email})
+					});
+					if (res.ok) {
+					alert('Updated!');
+					} else {
+					const msg = await res.text();
+					alert('Error: ' + msg);
+					}
+				} catch (err) {
+					console.error(err);
+					alert("Something went wrong while updating your profile.");
+				}
+			} else {
+				alert('Verification failed.');}
+			}
+			}
+		}
+		renderProfile();
+});
+}
+
+export type User = {
+	id: number;
+	email: string;
+	password_hash: string;
+	display_name: string;
+	avatar_url: string;
   
+	twofa_method: 'app' | 'email' | null;
+	twofa_secret: string | null;
+	twofa_verified: 0 | 1;
+	twofa_enabled: 0 | 1;
+  
+	created_at: string;
+	last_online: string;
+	account_status: 'active' | 'online' | 'offline' | 'banned';
+  }; 
+
+export async function renderProfile() {
+	const userId = localStorage.getItem('userId');
+	if (!userId) {
+	  alert("Please login");
+	  return route('/login');
+	}
+  
+	const res = await fetch('/api/profile', {
+	  method: 'GET',
+	  credentials: 'include',
+	});
+  
+	if (!res.ok) {
+	  setContent(`<div class="text-white-600">Not authorized to view this page.</div>`);
+	  return;
+	}
+  
+	const user = await res.json();
+	localStorage.setItem("userId", user.id);
+	localStorage.setItem("display_name", user.display_name);
+  
+	try {
+	setContent(renderProfileHTML(user));
+	setProfileEvents(user);
+	} catch {
+		setContent(`<div class="text-white-600">Not authorized to view this page.</div>`);
+	}
+}
+
   export async function logout(): Promise<void> {
 	  try {const userId = localStorage.getItem('userId');
 		  
@@ -296,7 +599,7 @@ export async function renderUserList() {
 
 		const users = await res.json();
 		if (!users.length) {
-			app.innerHTML = `<div class="text-center text-xl">No registered users</div>`;
+			app.innerHTML = `<div class="text-center text-xl">No registered users yet, but the first one :) </div>`;
 			return;
 		}
 		
@@ -350,7 +653,6 @@ export async function renderUserList() {
 
 export async function renderUserProfile(userId: number) {
 
-	
 	setContent(`<div class="text-center text-xl">Loading profile...</div>`);
 
 	try {const res = await fetch(`/api/user/${userId}`);
@@ -425,6 +727,10 @@ export async function renderUserProfile(userId: number) {
 			}
 
 		 setContent(`
+				<div class="flex justify-between items-start p-4">
+				<a href="/" onclick="route('/')" class="text-gray-400 hover:text-white">Home</a>
+				</div>
+
 			<div class="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl shadow-xl">
 				<div class="flex items-center gap-6 mb-6">
 					<img src="${user.avatar_url}" class="w-24 h-24 rounded-full border-4 border-indigo-500" />
@@ -465,50 +771,13 @@ export function getUserInfo() {
 	}
 }
 
-export async function renderRegister() {
-	setContent(`
-	<h1>Create Account</h1>
-	<form id="register-form" class="flex flex-col gap-2 mt-4">
-		<input name="display_name" type="text" placeholder="Public Name" required class="p-2 border text-black" />
-		<input name="email" type="email" placeholder="Email" required class="p-2 border text-black" />
-		<input name="password" type="password" placeholder="Password" required class="p-2 border text-black" />
-		<input name="avatar" type="file" accept="image/*" class="p-2 border" />
-		<button type="submit" class="bg-green-600 text-white px-4 py-2">Register</button>
-	</form>
-`);
-
-const form = document.getElementById('register-form') as HTMLFormElement;
-
-form?.addEventListener('submit', async (e) => {
-	e.preventDefault();
-
-	const formData = new FormData(form);
-
-	try {const res = await fetch('/api/register', {
-			method: 'POST',
-			body: formData
-		});
-
-		if (res.ok) {
-			alert('Account created!');
-			await route('/profile');
-		} else {
-			const msg = await res.text();
-			alert('Error: ' + msg);
-		}
-	} catch (err) {
-		alert('Network error');
-		console.error(err);
-	}
-});
-}
-
 export function renderLogin() {
 
 	const userId = localStorage.getItem('userId');
 	if (userId) {
 		alert("You are already logged in");
 		route('/profile');
+		return;
 	}
 
 	setContent(`
@@ -523,36 +792,82 @@ export function renderLogin() {
 
 	document.getElementById('login-form')!.addEventListener('submit', async (e) => {
 		e.preventDefault();
-
 		const formData = new FormData(e.target as HTMLFormElement);
-		const payload = {
-			email: formData.get('email')?.toString().trim(),
-			password: formData.get('password')?.toString().trim()
-		};
+		const email = formData.get('email')?.toString().trim();
+		const password = formData.get('password')?.toString().trim();
+		if (!email || !password) {
+			return alert('Email and password are both required');
+		  }		  
+	  
+		try {
+		  const res = await fetch('/api/login', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ email, password })
+		  });
 
-		try {const res = await fetch('/api/login', {
+		  if (!res.ok) {
+			const msg = await res.text();  
+			alert(msg || 'Invalide credentials');
+			//route('/login');
+			return;
+			}
+
+		const data = await res.json();
+
+		  if (!data.requires2FA) {
+			localStorage.setItem('userId', data.user_id);
+			localStorage.setItem('display_name', data.display_name);
+			route('/profile');
+		  } 
+		  else if (data.requires2FA) {
+			if (data.method === 'email') {
+			  await fetch('/api/2fa/send-code', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(payload)
+				body: JSON.stringify({ twofaMethod: 'email', email: data.email })
+			  });
+			}
+			const code = prompt(`Enter 2FA code in your ${data.method}`);
+			if (!code) return alert('2FA code required');
+	  
+			const verifyRes = await fetch('/api/2fa/verify-code', {
+			  method: 'POST',
+			  headers: { 'Content-Type': 'application/json' },
+			  body: JSON.stringify({ twofaMethod: data.method, email: data.email, code })
 			});
 
-			if (res.ok) {
+			if (!verifyRes.ok) {
+				const msg = await verifyRes.text();
+				console.log('verifyRes status:', verifyRes.status, 'message:', msg);
+				throw new Error(msg || '2FA verification failed');
+			  }
 
-				const data = await res.json();
-				localStorage.setItem('userId', data.user_id);
-				localStorage.setItem('display_name', data.display_name);
-				alert('Login successful!');
+			//const verifyData = await verifyRes.json();
+			const finalRes = await fetch('/api/final-login', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email, password })
+			  });
+			  
+			  if (!finalRes.ok) {
+				const msg = await finalRes.text();
+				throw new Error(msg || 'Something went wrong');
+			}else {
+				const finalData = await finalRes.json();
+				localStorage.setItem('userId', finalData.user_id);
+				localStorage.setItem('display_name', finalData.display_name);
 				route('/profile');
-			} else {
-				const msg = await res.text();
-				alert('Error: ' + msg);
-			}
+			  } 
+		  } 
 		} catch (err) {
-			alert('Network error');
-			console.error(err);
-		}
-	});
+
+				console.error(err);
+				alert(err instanceof Error ? err.message : 'Network error');
+			  }
+	  });	  
 }
+
 // Simple prompt-based private chat starter
 (window as any).startPrivateChat = async (userId: number, displayName?: string) => {
 	const toName = displayName ? ` to ${displayName}` : '';

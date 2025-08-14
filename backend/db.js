@@ -15,6 +15,11 @@ async function initDb() {
   try {
     await db.exec('BEGIN TRANSACTION');
 
+    // await db.exec(`DROP TABLE IF EXISTS users;`); // to delete
+    // await db.exec(`DROP TABLE IF EXISTS twofa_codes;`); 
+    // await db.exec(`DROP TABLE IF EXISTS app_codes;`); 
+    // await db.exec(`DROP TABLE IF EXISTS friends;`); 
+
     await db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,14 +27,43 @@ async function initDb() {
         password_hash TEXT NOT NULL,
         display_name TEXT UNIQUE NOT NULL,
         avatar_url TEXT DEFAULT './uploads/default-avatar.png',
+        
+        twofa_method TEXT DEFAULT NULL CHECK (twofa_method IN ('app', 'email') OR twofa_method IS NULL),
+        twofa_secret TEXT,
+        twofa_verified INTEGER DEFAULT 0 CHECK (twofa_verified IN (0, 1)),
+        twofa_enabled INTEGER DEFAULT 0 CHECK (twofa_enabled IN (0, 1)),
+
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_online TIMESTAMP,
+        last_online TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         account_status TEXT DEFAULT 'offline' CHECK (account_status IN ('active', 'online', 'offline', 'banned'))
       )
     `);
 
     await db.exec('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
     await db.exec('CREATE INDEX IF NOT EXISTS idx_users_display_name ON users(display_name)');
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS twofa_codes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contact TEXT NOT NULL,
+        method TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT (strftime('%s','now')),
+        expires_at INTEGER,
+        verified INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS app_codes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contact TEXT NOT NULL,
+        secret_base32 TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+        expires_at INTEGER NOT NULL,
+        verified INTEGER NOT NULL DEFAULT 0
+      )
+    `);
 
     await db.exec(`
       CREATE TABLE IF NOT EXISTS messages (
@@ -81,8 +115,6 @@ async function initDb() {
         FOREIGN KEY (winner_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
-
-    
 
     await db.exec(`
       CREATE TABLE IF NOT EXISTS private_messages (

@@ -4,8 +4,10 @@ import { initPongGame } from "../pong/pong.js";
 
 // --- Entry Page (landing) ---
 export function renderEntryPage() {
-	const userName = localStorage.getItem("displayName");
+	const userName = localStorage.getItem("display_name");
 	const userId = localStorage.getItem('user.id');
+
+	console.log('check entry page:', userName, userId);
 
 	let identification = "";
 

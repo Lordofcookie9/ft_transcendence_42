@@ -1,7 +1,20 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   collision.ts                                       :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: rrichard <rrichard@student.42.fr>          +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/08/12 17:37:54 by rrichard          #+#    #+#             */
+/*   Updated: 2025/08/12 17:37:55 by rrichard         ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
 import { Ball } from "./Ball.js";
 import { Paddle } from "./Paddle.js";
 
-export function checkPaddleCollision(ball: Ball, paddle: Paddle): boolean {
+export function checkPaddleCollision(ball: Ball, paddle: Paddle): boolean
+{
 	const ballLeft = ball.x;
 	const ballRight = ball.x + ball.size;
 	const ballTop = ball.y;

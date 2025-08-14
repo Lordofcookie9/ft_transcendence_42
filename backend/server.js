@@ -38,9 +38,6 @@ const start = async () => {
 
   // users.js sets up JWT + authenticate, routes, etc.
   await registerUsers(fastify);
-
-  
-  
   
   // ---- CHAT ----
   // Return public messages; if authenticated, include private messages sent by/to the current user.

@@ -16,6 +16,9 @@
     "sqlite": "^4.2.1",
     "sqlite3": "^5.1.6",
     "bcrypt": "^6.0.0",
-    "@fastify/cors": "^8.0.0"
+    "@fastify/cors": "^8.0.0",
+    "speakeasy": "^2.0.0",
+    "qrcode": "^1.5.1",
+    "nodemailer": "^6.9.11"
   }
 }
