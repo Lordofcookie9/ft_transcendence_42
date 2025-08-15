@@ -127,6 +127,18 @@ async function initDb() {
         FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS game_rooms (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        host_id   INTEGER NOT NULL,
+        guest_id  INTEGER,
+        status    TEXT NOT NULL DEFAULT 'pending', -- pending | active | finished | cancelled
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (host_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (guest_id) REFERENCES users(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_game_rooms_status ON game_rooms(status);
+    `);
 await db.exec('COMMIT');
   } catch (err) {
     await db.exec('ROLLBACK');

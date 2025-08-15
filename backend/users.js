@@ -10,6 +10,7 @@ const fastifyCors = require('@fastify/cors');
 const nodemailer = require('nodemailer');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
+const fastifyWebsocket = require('@fastify/websocket');
 
 
 const db = fastify.db;
