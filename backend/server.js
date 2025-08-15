@@ -52,6 +52,9 @@ const start = async () => {
         // Not authenticated; only show public messages (no blocking context available)
       }
 
+      // Always enforce "last 2 hours" at the DB level
+      const twoHoursAgo = `datetime('now','-2 hours')`;
+
       if (!currentUserId) {
         const publicMessages = await fastify.db.all(`
           SELECT 
@@ -61,16 +64,18 @@ const start = async () => {
             u.id AS user_id
           FROM messages m
           LEFT JOIN users u ON u.display_name = m.alias
+          WHERE m.timestamp >= ${twoHoursAgo}
           ORDER BY m.id ASC
         `);
         return publicMessages;
       }
 
       // Authenticated: include private messages involving the current user and tag them,
-      // and exclude any messages from users in a blocking relationship with you.
+      // exclude any messages from users in a blocking relationship with you,
+      // and only keep messages from the last 2 hours.
       const rows = await fastify.db.all(`
         SELECT alias, message, timestamp, user_id FROM (
-          -- Public chat
+          -- Public chat (last 2 hours)
           SELECT 
             m.alias AS alias,
             m.message AS message,
@@ -78,10 +83,11 @@ const start = async () => {
             u.id AS user_id
           FROM messages m
           LEFT JOIN users u ON u.display_name = m.alias
-
+          WHERE m.timestamp >= ${twoHoursAgo}
+  
           UNION ALL
-
-          -- Private chat visible only to the two participants
+  
+          -- Private chat visible only to the two participants (last 2 hours)
           SELECT
             su.display_name AS alias,
             ('<(private): ' || pm.message || '>') AS message,
@@ -89,7 +95,8 @@ const start = async () => {
             su.id AS user_id
           FROM private_messages pm
           JOIN users su ON su.id = pm.sender_id
-          WHERE pm.sender_id = ? OR pm.recipient_id = ?
+          WHERE (pm.sender_id = ? OR pm.recipient_id = ?)
+            AND pm.timestamp >= ${twoHoursAgo}
         )
         WHERE NOT EXISTS (
                 SELECT 1 FROM friends f
@@ -115,11 +122,17 @@ const start = async () => {
   });
 
 
+
   fastify.post('/api/chat', { preValidation: [fastify.authenticate] }, async (request, reply) => {
     try {
       const { message } = request.body || {};
       if (!message || !message.trim()) {
         return reply.code(400).send({ error: 'Missing alias or message' });
+      }
+
+      const normalized = message.trim();
+      if (normalized.length > 1000) {
+        return reply.code(403).send({ error: 'Message must be under 1000 characters long' });
       }
 
       // Get display_name from DB using authenticated user id
@@ -135,7 +148,7 @@ const start = async () => {
 
       await fastify.db.run(
         'INSERT INTO messages (alias, message) VALUES (?, ?)',
-        [alias, message.trim()]
+        [alias, normalized]
       );
 
       return { success: true };
@@ -144,6 +157,7 @@ const start = async () => {
       reply.code(500).send({ error: 'Failed to save message' });
     }
   });
+
 
   // Private chat: only sender and recipient will receive these via GET /api/chat
   fastify.post('/api/chat/private', { preValidation: [fastify.authenticate] }, async (request, reply) => {

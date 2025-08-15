@@ -7,15 +7,13 @@
     <script>
       // Prevent page reloads on links
       window.addEventListener("click", (e) => {
-        const target = e.target;
-        if (target instanceof HTMLElement && target.tagName === "A" && target.hasAttribute("data-link")) {
+        const el = e.target instanceof Element ? e.target.closest('a[data-link]') : null;
+        if (el) {
           e.preventDefault();
-          const href = target.getAttribute("href");
-          if (href && window.route) {
-            window.route(href);
-          }
+          const href = el.getAttribute("href");
+          if (href && window.route) window.route(href);
         }
-      });
+    });
     </script>
   </head>
   <body class="bg-gray-900 text-white">

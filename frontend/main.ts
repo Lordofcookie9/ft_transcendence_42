@@ -111,28 +111,56 @@ handleLocation();
 
 // Block visitors from posting; backend derives alias from JWT
 (window as any).submitMessage = async function () {
-  const input = document.getElementById('messageInput') as HTMLInputElement;
-  const message = input?.value.trim();
+  const input = document.getElementById('messageInput') as HTMLInputElement | null;
+  const message = input?.value?.trim() ?? '';
   if (!message) return;
 
-  const res = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",              // send the JWT cookie
-    body: JSON.stringify({ message }),   // server derives alias from JWT
-  });
-
-  if (res.status === 401) {
-    alert("Please log in to use the chat.");
-    return;
-  }
-  if (!res.ok) {
-    alert("Failed to send message.");
+  // Client-side guard (nice UX; backend still enforces)
+  if (message.length > 1000) {
+    alert('Message must be under 1000 characters long');
     return;
   }
 
-  input.value = "";
-  updateChatBox();
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ message }),
+    });
+
+    if (!res.ok) {
+      // Try JSON -> text -> fallback message
+      let msg = `Error: ${res.status} ${res.statusText}`;
+      try {
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          const data = await res.json();
+          if (data && typeof data.error === 'string' && data.error.trim()) {
+            msg = data.error;
+          }
+        } else {
+          const text = await res.text();
+          if (text && text.trim()) msg = text.trim();
+        }
+      } catch { /* ignore parse errors */ }
+
+      if (res.status === 401) msg = "Please log in to use the chat.";
+      if (res.status === 403 && msg === `Error: 403 ${res.statusText}`) {
+        // explicit fallback for your length rule if server didn't include a body
+        msg = "Message must be under 1000 characters long";
+      }
+
+      alert(msg);
+      return;
+    }
+
+    if (input) input.value = "";
+    updateChatBox();
+  } catch (err) {
+    console.error("Failed to send message", err);
+    alert("Network error while sending message");
+  }
 };
 
 // ======== TOURNAMENT ENGINE (Single Elimination, 3–8 players) ========

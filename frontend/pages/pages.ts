@@ -1,6 +1,7 @@
 import { getUserInfo, logout } from '../users/userManagement.js';
 import { setContent, escapeHtml} from '../utility.js';
 import { initPongGame } from "../pong/pong.js";
+import { route } from '../router.js';
 
 // --- Entry Page (landing) ---
 export function renderEntryPage() {
@@ -191,14 +192,32 @@ export async function sendMessage(alias: string, message: string): Promise<any> 
 }
 
 export async function sendPrivateMessage(recipientId: number, message: string): Promise<any> {
-	const res = await fetch('/api/chat/private', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		credentials: 'include',
-		body: JSON.stringify({ recipient_id: recipientId, message })
-	});
-	return await res.json();
+  const text = (message ?? '').trim();
+  if (!text) throw new Error('Message is empty');
+  if (text.length > 1000) throw new Error('Message must be under 1000 characters long');
+
+  const res = await fetch('/api/chat/private', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ recipient_id: recipientId, message: text })
+  });
+
+  if (!res.ok) {
+    // surface backend error message if present
+    let errMsg = `Failed to send DM (${res.status})`;
+    try {
+      const data = await res.json();
+      if (data?.error) errMsg = data.error;
+    } catch {}
+    throw new Error(errMsg);
+  }
+
+  return res.json();
 }
+
+// Make it callable from the chat popover
+(window as any).sendPrivateMessage = (window as any).sendPrivateMessage || sendPrivateMessage;
 
 // --- Page Stubs ---
 export async function renderLocal1v1() {
@@ -287,7 +306,7 @@ async function loadKnownUsers() {
 	try {
 		const res = await fetch('/api/users');
 		const users = await res.json();
-		knownUserSet = new Set(users.map((u: any) => u.displayName));
+		knownUserSet = new Set(users.map((u: any) => u.display_name));
 	} catch (err) {
 		console.error("Failed to load known users", err);
 		knownUserSet = new Set(); // fallback
@@ -295,30 +314,222 @@ async function loadKnownUsers() {
 }
 
 export async function updateChatBox() {
-	const chatBox = document.getElementById('chatBox');
-	if (!chatBox) return;
+  const chatBox = document.getElementById('chatBox') as HTMLDivElement | null;
+  if (!chatBox) return;
 
-	await loadKnownUsers();
+  // one-time wiring for the alias popover + document-level click interception
+  ensureChatAliasMenuSetup();
 
-	const messages = await getMessages();
+  // Load messages
+  let messages: Array<{ alias: string; message: string; timestamp: string; user_id?: number | null }> = [];
+  try {
+    messages = await getMessages();
+  } catch (err) {
+    console.error('Failed to load messages', err);
+    return;
+  }
 
-	chatBox.innerHTML = messages.map(msg => {
-		const timestamp = new Date(msg.timestamp).toLocaleTimeString([], {
-			hour: '2-digit',
-			minute: '2-digit',
-		});
+  // Build chat HTML
+  const html = messages.map((msg) => {
+    const ts = parseTimestamp(msg.timestamp);
+    const timestamp = ts
+      ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '';
 
-		const isRegisteredUser = knownUserSet?.has(msg.alias);
+    const aliasMarkup = renderChatAlias(msg); // shows the clickable name that opens the menu
+    const body = escapeHtml(msg.message);
 
-		const aliasHTML = (isRegisteredUser && msg.user_id)
-			? `<a href="/profile/${msg.user_id}" data-link class="text-blue-400 hover:underline">${msg.alias}</a>`
-			: `<strong>${msg.alias}</strong>`;
+    return `
+      <div class="msg" data-ts="${msg.timestamp}">
+        <span class="text-gray-400">[${timestamp}]</span>
+        <span class="alias">${aliasMarkup}</span>:
+        <span class="body break-words">${body}</span>
+      </div>
+    `;
+  }).join('');
 
-		return `<div><span class="text-gray-400">[${timestamp}]</span> ${aliasHTML}: ${msg.message}</div>`;
-	}).join('');
+  chatBox.innerHTML = html;
+  chatBox.scrollTop = chatBox.scrollHeight;
 
-	chatBox.scrollTop = chatBox.scrollHeight;
+  // --- small helper for SQLite timestamps like "YYYY-MM-DD HH:MM:SS" ---
+  function parseTimestamp(s: string): number | null {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d.getTime();
+    // fallback: treat as UTC "YYYY-MM-DD HH:MM:SS"
+    const iso = s.includes('T') ? s : s.replace(' ', 'T') + 'Z';
+    const t = Date.parse(iso);
+    return isNaN(t) ? null : t;
+  }
 }
+
+function renderChatAlias(msg: { user_id?: number | null; alias: string }): string {
+  const name = escapeHtml(msg.alias);
+  if (msg.user_id) {
+    // No data-link here; the document-level handler will open our menu instead of routing
+    return `<a href="/profile/${msg.user_id}"
+              class="chat-alias text-blue-400 hover:underline cursor-pointer"
+              data-chat-user-id="${msg.user_id}"
+              data-chat-alias="${name}">${name}</a>`;
+  }
+  return `<strong>${name}</strong>`;
+}
+
+// --- Chat alias popover menu ---
+let __chatAliasMenuInit = false;
+let __chatAliasMenuEl: HTMLDivElement | null = null;
+
+function ensureChatAliasMenuSetup() {
+  if (__chatAliasMenuInit) return;
+  __chatAliasMenuInit = true;
+
+  // Create the floating menu once
+  __chatAliasMenuEl = document.createElement('div');
+  __chatAliasMenuEl.id = 'chat-user-menu';
+  __chatAliasMenuEl.className = 'fixed z-[100] bg-gray-800 text-white border border-gray-700 rounded shadow-lg hidden';
+  __chatAliasMenuEl.style.width = '240px';
+  restoreAliasMenuButtons();
+  document.body.appendChild(__chatAliasMenuEl);
+
+  // Intercept clicks anywhere (capture=true) so we beat the SPA router
+  document.addEventListener('click', (e: MouseEvent) => {
+    const t = e.target as HTMLElement | null;
+    if (!t) return;
+    const a = t.closest('a.chat-alias') as HTMLAnchorElement | null;
+    if (!a) return;
+
+    // Optional: only for links inside the chat box
+    if (!a.closest('#chatBox')) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const uid = a.getAttribute('data-chat-user-id');
+    const alias = a.getAttribute('data-chat-alias') || '';
+    if (!uid) return;
+
+    showChatAliasMenu(Number(uid), alias, e.clientX, e.clientY);
+  }, true); // capture
+
+  // Menu button clicks
+  __chatAliasMenuEl.addEventListener('click', async (e) => {
+    const btn = (e.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
+    if (!btn) return;
+    const act = btn.getAttribute('data-act')!;
+    const uid = Number(__chatAliasMenuEl!.getAttribute('data-user-id')!);
+    const alias = __chatAliasMenuEl!.getAttribute('data-alias') || '';
+
+    if (act === 'profile') {
+      hideChatAliasMenu();
+      const href = `/profile/${uid}`;
+      if ((window as any).route) (window as any).route(href);
+      else window.location.href = href;
+      return;
+    }
+
+    if (act === 'dm') {
+		hideChatAliasMenu();
+
+		// 1) Prefer the exact composer you already use on the profile page
+		if (typeof (window as any).startPrivateChat === 'function') {
+			(window as any).startPrivateChat(uid, alias);
+			return;
+		}
+
+		// 2) If only a sender is exposed, use a quick prompt
+		if (typeof (window as any).sendPrivateMessage === 'function') {
+			const text = prompt(`Send a private message to ${alias}:`);
+			if (!text || !text.trim()) return;
+			(window as any).sendPrivateMessage(uid, text.trim())
+			.then(() => alert('Private message sent!'))
+			.catch((err: any) => {
+				console.error(err);
+				alert(err?.message || 'Failed to send private message');
+			});
+			return;
+		}
+
+		// 3) Last-resort: navigate to the profile and let that UI handle it
+		(window as any).route?.(`/profile/${uid}?compose=1`);
+		return;
+		}
+
+    	if (act === 'back') {
+      		restoreAliasMenuButtons();
+      		return;
+    }
+
+    if (act === 'send') {
+      const ta = document.getElementById('chat-dm-input') as HTMLTextAreaElement | null;
+      const text = ta?.value?.trim() || '';
+      if (!text) return;
+
+      try {
+        if (typeof (window as any).sendPrivateMessage === 'function') {
+          await (window as any).sendPrivateMessage(uid, text);
+        } else {
+          const res = await fetch('/api/chat/private', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ recipient_id: uid, message: text }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data?.error || `Failed to send DM (${res.status})`);
+          }
+        }
+        hideChatAliasMenu();
+        alert('Private message sent!');
+      } catch (err) {
+        console.error(err);
+        alert('Failed to send private message');
+      }
+    }
+  });
+
+  // Close on outside click
+  document.addEventListener('click', (e) => {
+    if (!__chatAliasMenuEl || __chatAliasMenuEl.classList.contains('hidden')) return;
+    const t = e.target as HTMLElement;
+    if (!t.closest('#chat-user-menu')) hideChatAliasMenu();
+  });
+
+  // Close on Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideChatAliasMenu();
+  });
+}
+
+(window as any).sendPrivateMessage = (window as any).sendPrivateMessage || sendPrivateMessage;
+
+function restoreAliasMenuButtons() {
+  if (!__chatAliasMenuEl) return;
+  __chatAliasMenuEl.innerHTML = `
+    <button data-act="profile" class="block w-full text-left px-3 py-2 hover:bg-gray-700">Go to profile</button>
+    <button data-act="dm" class="block w-full text-left px-3 py-2 hover:bg-gray-700">Send private message</button>
+  `;
+}
+
+function showChatAliasMenu(userId: number, alias: string, x: number, y: number) {
+  if (!__chatAliasMenuEl) return;
+  __chatAliasMenuEl.setAttribute('data-user-id', String(userId));
+  __chatAliasMenuEl.setAttribute('data-alias', alias);
+
+  // position near cursor; keep inside viewport
+  const pad = 8, w = 240, h = 120;
+  const left = Math.min(window.innerWidth - w - pad, x + pad);
+  const top  = Math.min(window.innerHeight - h - pad, y + pad);
+  __chatAliasMenuEl.style.left = `${left}px`;
+  __chatAliasMenuEl.style.top  = `${top}px`;
+
+  restoreAliasMenuButtons();
+  __chatAliasMenuEl.classList.remove('hidden');
+}
+
+function hideChatAliasMenu() {
+  __chatAliasMenuEl?.classList.add('hidden');
+}
+
 
 export async function updateCounter() {
 	const span = document.getElementById("counterDisplay");
