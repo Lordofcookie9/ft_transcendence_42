@@ -105,18 +105,21 @@ async function initDb() {
     `);
 
     await db.exec(`
-      CREATE TABLE IF NOT EXISTS stats (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        opponent_id INTEGER,
-        winner_id INTEGER,
-        result TEXT CHECK (result IN ('win', 'lose', 'draw')),
-        score INTEGER,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (opponent_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (winner_id) REFERENCES users(id) ON DELETE CASCADE
-      )
+      CREATE TABLE IF NOT EXISTS matches (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          room_id      INTEGER,
+          mode         TEXT NOT NULL,            -- 'private_1v1' | 'public' | etc
+          host_id      INTEGER NOT NULL,
+          guest_id     INTEGER NOT NULL,
+          winner_id    INTEGER NOT NULL,
+          loser_id     INTEGER NOT NULL,
+          host_score   INTEGER,
+          guest_score  INTEGER,
+          finished_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_matches_user_time ON matches(finished_at);
+        CREATE INDEX IF NOT EXISTS idx_matches_host ON matches(host_id);
+        CREATE INDEX IF NOT EXISTS idx_matches_guest ON matches(guest_id);
     `);
 
     await db.exec(`

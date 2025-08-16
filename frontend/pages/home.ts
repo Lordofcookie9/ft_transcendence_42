@@ -243,16 +243,25 @@ export async function renderPrivate1v1() {
   }
 
   // >>> EXACT PLACE TO PUT THIS <<<
-  // Sends the result to the backend so only private 1v1 matches increment PvP W/L.
-  async function reportResult(winner?: string) {
-    if (!winner) return; // nothing to report without a winner label
-    const iWon = (role === 'left') ? (winner === hostAlias) : (winner === guestAlias);
+  // Sends the result to the backend.
+  async function reportResult() {
+    // host=left=P1, guest=right=P2 in this view
+    const p1 = parseInt(localStorage.getItem('p1Score') || '0', 10);
+    const p2 = parseInt(localStorage.getItem('p2Score') || '0', 10);
+
+    // If scores are equal, don't send (shouldn't happen at end of match)
+    if (Number.isNaN(p1) || Number.isNaN(p2) || p1 === p2) return;
+
+    const iWon = (role === 'left') ? (p1 > p2) : (p2 > p1);
+    const host_score  = p1;
+    const guest_score = p2;
+
     try {
       await fetch('/api/game/result', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ room_id: roomId, i_won: iWon }),
+        body: JSON.stringify({ room_id: roomId, i_won: iWon, host_score, guest_score }),
       });
     } catch (e) {
       console.error('Failed to report result', e);
@@ -370,7 +379,7 @@ export async function renderPrivate1v1() {
       hidePrestart();
       showEndOverlay(msg.detail);
       // REPORT RESULT HERE for the guest (host reports locally below)
-      reportResult(msg.detail?.winner);
+      reportResult();
       if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
       return;
     }
@@ -400,7 +409,7 @@ export async function renderPrivate1v1() {
         ws.send(JSON.stringify({ type: 'gameover', detail }));
       }
       // REPORT RESULT HERE for the host
-      reportResult(detail?.winner);
+      reportResult();
     };
     window.addEventListener('pong:gameend', onGameEnd, { once: true });
 

@@ -75,7 +75,7 @@ module.exports = function registerGameRoutes(fastify) {
     });
     fastify.post('/api/game/result', { preValidation: [fastify.authenticate] }, async (request, reply) => {
       try {
-        const { room_id, i_won } = request.body || {};
+        const { room_id, i_won, host_score: hs, guest_score: gs } = request.body || {};
         const me = request.user.id;
 
         if (!room_id || typeof i_won !== 'boolean') {
@@ -106,6 +106,14 @@ module.exports = function registerGameRoutes(fastify) {
         if (upd.changes > 0) {
           await fastify.db.run(`UPDATE users SET pvp_wins = pvp_wins + 1   WHERE id = ?`, [winner_id]);
           await fastify.db.run(`UPDATE users SET pvp_losses = pvp_losses + 1 WHERE id = ?`, [loser_id]);
+          const host_score  = Number.isFinite(+hs) ? +hs : null;
+          const guest_score = Number.isFinite(+gs) ? +gs : null;
+          await fastify.db.run(
+            `INSERT INTO matches
+              (room_id, mode, host_id, guest_id, winner_id, loser_id, host_score, guest_score, finished_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+            [room_id, room.mode, room.host_id, room.guest_id, winner_id, loser_id, host_score, guest_score]
+          );
         }
         await fastify.db.run('COMMIT');
 

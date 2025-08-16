@@ -513,48 +513,77 @@ fastify.post('/api/login', async (req, reply) => {
 });
 
 fastify.get('/api/user/:id', async (req, reply) => {
+  try {
+    let currentUserId = null;
     try {
-      let currentUserId = null;
-      try {
-        const authorized = await req.jwtVerify();
-        currentUserId = authorized.id;
-      } catch (err) {}
+      const authorized = await req.jwtVerify();
+      currentUserId = authorized.id;
+    } catch (_) {}
 
-      const userId = req.params.id;
-      const user = await db.get(`
-        SELECT 
-          u.id,
-          u.display_name,
-          u.avatar_url,
-          u.account_status,
-          u.created_at,
-          u.last_online,
-          u.pvp_wins   AS wins,
-          u.pvp_losses AS losses
-        FROM users u WHERE u.id = ?
-      `, [userId]);
-      if (!user) return reply.code(404).send('User not found');
+    const userId = parseInt(req.params.id, 10);
 
-      const stats = await db.all(`
-        SELECT * FROM stats WHERE user_id = ? ORDER BY created_at DESC LIMIT 10
-      `, [userId]);
+    const user = await db.get(
+      `
+      SELECT 
+        u.id,
+        u.display_name,
+        u.avatar_url,
+        u.account_status,
+        u.created_at,
+        u.last_online,
+        u.pvp_wins   AS wins,
+        u.pvp_losses AS losses
+      FROM users u 
+      WHERE u.id = ?
+      `,
+      [userId]
+    );
+    if (!user) return reply.code(404).send('User not found');
 
-      if (currentUserId) {
-        const friendRow = await db.get(`
-          SELECT status
-          FROM friends
-          WHERE user_id = ? AND friend_id = ?
-        `, [user.id, currentUserId]);
-      
-        user.friend_status = friendRow?.status || null;
-      }
-      
-      reply.send({ user, stats });
-    } catch (err) {
-      console.error("Failed to get user profile:", err);
-      reply.status(500).send({ error: 'Failed to load user profile' });
+    // NEW: match history (last 50 private 1v1)
+    const history = await db.all(
+      `
+      SELECT
+        m.id,
+        strftime('%Y-%m-%dT%H:%M:%SZ', m.finished_at) AS date,
+        -- Opponent relative to requested user
+        CASE WHEN ? = m.host_id THEN u2.display_name ELSE u1.display_name END AS opponent_name,
+        CASE WHEN ? = m.host_id THEN m.guest_id     ELSE m.host_id     END AS opponent_id,
+        -- Scores (your side first)
+        CASE WHEN ? = m.host_id THEN m.host_score   ELSE m.guest_score END AS your_score,
+        CASE WHEN ? = m.host_id THEN m.guest_score  ELSE m.host_score  END AS opponent_score
+      FROM matches m
+      JOIN users u1 ON u1.id = m.host_id
+      JOIN users u2 ON u2.id = m.guest_id
+      WHERE ? IN (m.host_id, m.guest_id)
+        AND m.mode = 'private_1v1'
+      ORDER BY m.finished_at DESC
+      LIMIT 50
+      `,
+      [userId, userId, userId, userId, userId]
+    );
+
+    if (currentUserId) {
+      const friendRow = await db.get(
+        `
+        SELECT status
+        FROM friends
+        WHERE user_id = ? AND friend_id = ?
+        `,
+        [user.id, currentUserId]
+      );
+      user.friend_status = friendRow?.status || null;
     }
-  });
+
+    // Return history (no legacy stats)
+    reply.send({ user, history });
+  } catch (err) {
+    console.error('Failed to get user profile:', err);
+    reply.status(500).send({ error: 'Failed to load user profile' });
+  }
+});
+
+
 
   fastify.post('/api/friends/:id/add', { preHandler: [fastify.authenticate] }, async (req, reply) => {
     const friendId = req.params.id;
@@ -805,32 +834,89 @@ fastify.get('/api/user/:id', async (req, reply) => {
           u.created_at,
           u.last_online,
           u.pvp_wins   AS wins,
-          u.pvp_losses AS losses
+          u.pvp_losses AS losses,
+
+          -- Latest private 1v1 opponent id
+          (
+            SELECT CASE
+                    WHEN m.host_id = u.id THEN m.guest_id
+                    ELSE m.host_id
+                  END
+            FROM matches m
+            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode = 'private_1v1'
+            ORDER BY m.finished_at DESC
+            LIMIT 1
+          ) AS last_match_opponent_id,
+
+          -- Latest private 1v1 opponent display name
+          (
+            SELECT CASE
+                    WHEN m.host_id = u.id THEN (SELECT display_name FROM users WHERE id = m.guest_id)
+                    ELSE (SELECT display_name FROM users WHERE id = m.host_id)
+                  END
+            FROM matches m
+            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode = 'private_1v1'
+            ORDER BY m.finished_at DESC
+            LIMIT 1
+          ) AS last_match_opponent,
+
+          -- Latest private 1v1 score (your side)
+          (
+            SELECT CASE
+                    WHEN m.host_id = u.id THEN m.host_score
+                    ELSE m.guest_score
+                  END
+            FROM matches m
+            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode = 'private_1v1'
+            ORDER BY m.finished_at DESC
+            LIMIT 1
+          ) AS last_match_your_score,
+
+          -- Latest private 1v1 score (opponent side)
+          (
+            SELECT CASE
+                    WHEN m.host_id = u.id THEN m.guest_score
+                    ELSE m.host_score
+                  END
+            FROM matches m
+            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode = 'private_1v1'
+            ORDER BY m.finished_at DESC
+            LIMIT 1
+          ) AS last_match_opponent_score,
+
+          -- Latest private 1v1 finished time
+          (
+            SELECT m.finished_at
+            FROM matches m
+            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode = 'private_1v1'
+            ORDER BY m.finished_at DESC
+            LIMIT 1
+          ) AS last_match_date
+
         FROM users u
         ORDER BY 
-        CASE WHEN u.account_status = 'online' THEN 0 ELSE 1 END,
-        u.last_online DESC
+          CASE WHEN u.account_status = 'online' THEN 0 ELSE 1 END,
+          u.last_online DESC
       `);
 
       if (currentUserId) {
-        const friends = await db.all(`
-          SELECT user_id AS friend_id, status
-          FROM friends
-          WHERE friend_id = ?
-        `, [currentUserId]);
-      
+        const friends = await db.all(
+          `SELECT user_id AS friend_id, status
+            FROM friends
+            WHERE friend_id = ?`,
+          [currentUserId]
+        );
         const friendMap = Object.fromEntries(friends.map(f => [f.friend_id, f.status]));
-      
-        users.forEach(user => {
-          user.friend_status = friendMap[user.id] || null;
-        });
-      }      
+        users.forEach(u => { u.friend_status = friendMap[u.id] || null; });
+      }
+
       reply.send(users);
     } catch (err) {
       console.error("DB error in /api/users:", err);
       reply.status(500).send({ error: 'Failed to load users list' });
     }
   });
+
 
   fastify.delete('/api/delete-account', { preValidation: [fastify.authenticate] }, async (req, reply) => {
     const userId = req.user.id;

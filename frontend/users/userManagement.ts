@@ -1,5 +1,5 @@
 import { sendPrivateMessage } from '../pages/pages.js';
-import { setContent } from '../utility.js';
+import { setContent, formatDbDateTime } from '../utility.js';
 import { route } from '../router.js';
 
 
@@ -652,110 +652,131 @@ export async function renderUserList() {
 
 
 export async function renderUserProfile(userId: number) {
+  setContent(`<div class="text-center text-xl">Loading profile...</div>`);
 
-	setContent(`<div class="text-center text-xl">Loading profile...</div>`);
+  try {
+    const res = await fetch(`/api/user/${userId}`);
+    if (!res.ok) throw new Error("User not found");
 
-	try {const res = await fetch(`/api/user/${userId}`);
-		if (!res.ok) throw new Error("User not found");
-		const { user, stats } = await res.json();
-		const formatDate = (d: string) => new Date(d).toLocaleString();
+    const { user, history } = await res.json();
+    const formatDate = (d: string) => formatDbDateTime(d);
 
-		const currUser = getUserInfo();
-		const isSelf = userId.toString() === localStorage.getItem("userId");
-		let friendButtons = "";
-		let statsForm = "";
-		let goProfile = "";
+    const currUser = getUserInfo();
+    const isSelf = userId.toString() === localStorage.getItem("userId");
 
-		if (currUser.type === "loggedInUser") {
-			if (Array.isArray(stats) && stats.length) {
-				statsForm = `
-					<h2 class="text-xl font-semibold mb-2">Recent Matches</h2>
-					<ul class="space-y-2">
-						${stats.map((match: any) => `
-							<li class="bg-gray-700 px-4 py-2 rounded flex justify-between">
-								<span>${(match?.result || 'N/A').toUpperCase()} vs User #${match?.opponent_id ?? '?'}</span>
-								<span>Score: ${match?.score ?? '-'}</span>
-							</li>
-						`).join('')}
-					</ul>`;
-			}
- 
-				if (!isSelf){
-					if (user.friend_status === "adding"){
-						friendButtons = `
-							<div class="text-white-600">This user has sent you a friend request</div>
-							<div class="flex gap-2 mb-8">
-							<button class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded" onclick="window.acceptFriend(${user.id})">Accept</button>
-							<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
-							<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-							<button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-						</div>`}
-					else if (user.friend_status === "pending"){
-							friendButtons = `
-								<div class="text-white-600">Awaiting response to your friend request.</div>
-								<div class="flex gap-2 mb-8">
-								<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Cancel request</button>
-								<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
-								<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-								<button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>	
-							</div>`}
-					else if (user.friend_status === "accepted" || user.friend_status === "added") {
-						friendButtons = `
-						<div class="text-white-600">You are friends.</div>
-						<div class="flex gap-2 mb-8">
-							<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Unfriend</button>
-							<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
-							<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-							<button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-						</div>`}
-						else if (user.friend_status === "blocked"){
-									friendButtons = `
-									<div class="flex gap-2 mb-8">
-									<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Unblock</button>
-									</div>`} 
-						else if (!user.friend_status){
-								friendButtons = `
-								<div class="flex gap-2 mb-8">
-									<button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded" onclick="window.addFriend(${user.id})">Add Friend</button>
-									<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
-									<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-									<button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-								</div>`}
-				 }
-				 else {
-							goProfile = `<a href="/profile" data-link class="text-white-400 hover:underline">Manage your profile</a>`}   
-			}
+    let friendButtons = "";
+    let goProfile = "";
 
-		 setContent(`
-				<div class="flex justify-between items-start p-4">
-				 <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
-				</div>
+    // ---- Match History (last 50 private 1v1) ----
+    let historyBlock = `
+      <h2 class="text-xl font-semibold mb-2">Match History</h2>
+      <ul class="space-y-2">
+        ${
+          Array.isArray(history) && history.length
+            ? history.map((m: any) => {
+                const score =
+                  (m?.your_score ?? null) !== null && (m?.opponent_score ?? null) !== null
+                    ? `${m.your_score} - ${m.opponent_score}`
+                    : '—';
+                const when = m?.date ? formatDbDateTime(m.date) : '';
+                const opp  = m?.opponent_name || `User #${m?.opponent_id ?? '?'}`;
+                return `
+                  <li class="bg-gray-700 px-4 py-2 rounded flex justify-between">
+                    <span>${opp}</span>
+                    <span>${score}</span>
+                    <span class="text-gray-300">${when}</span>
+                  </li>`;
+              }).join('')
+            : `<li class="bg-gray-700 px-4 py-2 rounded text-center text-gray-300">No matches yet.</li>`
+        }
+      </ul>
+    `;
 
-			<div class="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl shadow-xl">
-				<div class="flex items-center gap-6 mb-6">
-					<img src="${user.avatar_url}" class="w-24 h-24 rounded-full border-4 border-indigo-500" />
-					<div>
-						<h1 class="text-3xl font-bold">${user.display_name}</h1>
-						<p class="text-sm text-gray-400">Status: ${user.account_status}</p>
-						<p class="text-sm text-gray-400">Created: ${formatDate(user.created_at)}</p>
-						<p class="text-sm text-gray-400">Last Online: ${formatDate(user.last_online)}</p>
-					</div>
-				</div>
+    // ---- Friend buttons / self link ----
+    if (currUser.type === "loggedInUser") {
+      if (!isSelf) {
+        if (user.friend_status === "adding") {
+          friendButtons = `
+            <div class="text-white-600">This user has sent you a friend request</div>
+            <div class="flex gap-2 mb-8">
+              <button class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded" onclick="window.acceptFriend(${user.id})">Accept</button>
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
+              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
+            </div>`;
+        } else if (user.friend_status === "pending") {
+          friendButtons = `
+            <div class="text-white-600">Awaiting response to your friend request.</div>
+            <div class="flex gap-2 mb-8">
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Cancel request</button>
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
+              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
+            </div>`;
+        } else if (user.friend_status === "accepted" || user.friend_status === "added") {
+          friendButtons = `
+            <div class="text-white-600">You are friends.</div>
+            <div class="flex gap-2 mb-8">
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Unfriend</button>
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
+              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
+            </div>`;
+        } else if (user.friend_status === "blocked") {
+          friendButtons = `
+            <div class="flex gap-2 mb-8">
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Unblock</button>
+            </div>`;
+        } else {
+          friendButtons = `
+            <div class="flex gap-2 mb-8">
+              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded" onclick="window.addFriend(${user.id})">Add Friend</button>
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
+              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
+            </div>`;
+        }
+      } else {
+        goProfile = `<a href="/profile" data-link class="text-white-400 hover:underline">Manage your profile</a>`;
+      }
+    }
 
-				<div class="flex gap-4 mb-6">
-					<div class="bg-gray-700 px-4 py-2 rounded">🏆 Wins: <strong>${user.wins}</strong></div>
-					<div class="bg-gray-700 px-4 py-2 rounded">💥 Losses: <strong>${user.losses}</strong></div>
-				</div>
+    // ---- Render ----
+    setContent(`
+      <div class="flex justify-between items-start p-4">
+        <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
+      </div>
 
-				${friendButtons}
-				${goProfile}
-				${statsForm}
+      <div class="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl shadow-xl">
+        <div class="flex items-center gap-6 mb-6">
+          <img src="${user.avatar_url}" class="w-24 h-24 rounded-full border-4 border-indigo-500" />
+          <div>
+            <h1 class="text-3xl font-bold">${user.display_name}</h1>
+            <p class="text-sm text-gray-400">Status: ${user.account_status}</p>
+            <p class="text-sm text-gray-400">Created: ${formatDate(user.created_at)}</p>
+            <p class="text-sm text-gray-400">Last Online: ${formatDate(user.last_online)}</p>
+          </div>
+        </div>
 
-			</div>`)}
-		catch (err) {
-			setContent(`<div class="text-red-500 text-center">Failed to load profile.</div>`);
-	}
+        <div class="flex gap-4 mb-6">
+          <div class="bg-gray-700 px-4 py-2 rounded">🏆 Wins: <strong>${user.wins}</strong></div>
+          <div class="bg-gray-700 px-4 py-2 rounded">💥 Losses: <strong>${user.losses}</strong></div>
+        </div>
+
+        ${friendButtons}
+        ${goProfile}
+
+        <div class="mt-8">
+          ${historyBlock}
+        </div>
+      </div>
+    `);
+  } catch (err) {
+    setContent(`<div class="text-red-500 text-center">Failed to load profile.</div>`);
+  }
 }
+
+
 
 export function getUserInfo() {
 	const userId = localStorage.getItem("userId");

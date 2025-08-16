@@ -1,6 +1,7 @@
 import { getUserInfo, logout } from '../users/userManagement.js';
-import { setContent, escapeHtml } from '../utility.js';
+import { setContent, escapeHtml, formatDbTime } from '../utility.js';
 import { initPongGame } from "../pong/pong.js";
+
 import { route } from '../router.js';
 
 
@@ -63,7 +64,7 @@ export async function updateChatBox() {
   const html = messages.map((msg) => {
     const ts = parseTimestamp(msg.timestamp);
     const timestamp = ts
-      ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      ? formatDbTime(msg.timestamp)
       : '';
 
     const aliasMarkup = renderChatAlias(msg); // shows the clickable name that opens the menu
