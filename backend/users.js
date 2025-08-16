@@ -529,8 +529,8 @@ fastify.get('/api/user/:id', async (req, reply) => {
           u.account_status,
           u.created_at,
           u.last_online,
-          (SELECT COUNT(*) FROM stats s WHERE s.winner_id = u.id) AS wins,
-          (SELECT COUNT(*) FROM stats s WHERE s.user_id = u.id AND s.winner_id != u.id) AS losses
+          u.pvp_wins   AS wins,
+          u.pvp_losses AS losses
         FROM users u WHERE u.id = ?
       `, [userId]);
       if (!user) return reply.code(404).send('User not found');
@@ -705,7 +705,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
 
  fastify.get('/api/profile', { preValidation: [fastify.authenticate] }, async (req, reply) => {
     const user = await db.get(
-      `SELECT id, email, display_name, avatar_url, twofa_method, twofa_enabled, twofa_verified, created_at, last_online, account_status FROM users WHERE id = ?`,
+      `SELECT id, email, display_name, avatar_url, twofa_method, twofa_enabled, twofa_verified, created_at, last_online, pvp_losses AS losses, pvp_wins AS wins, account_status FROM users WHERE id = ?`,
       [req.user.id]
     );
     if (!user) return reply.code(404).send({ error: 'User not found' });
@@ -804,8 +804,8 @@ fastify.get('/api/user/:id', async (req, reply) => {
           u.account_status,
           u.created_at,
           u.last_online,
-          (SELECT COUNT(*) FROM stats s WHERE s.winner_id = u.id) AS wins,
-          (SELECT COUNT(*) FROM stats s WHERE s.user_id = u.id AND s.winner_id != u.id) AS losses
+          u.pvp_wins   AS wins,
+          u.pvp_losses AS losses
         FROM users u
         ORDER BY 
         CASE WHEN u.account_status = 'online' THEN 0 ELSE 1 END,

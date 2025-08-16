@@ -172,7 +172,7 @@ export async function renderRegister() {
 function renderProfileHTML(user: User) {
 	return `
 	<div class="flex justify-between items-start p-4">
-	  <a href="/" onclick="route('/')" class="text-gray-400 hover:text-white">Home</a>
+	  <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
 	</div>
   
 	<div class="max-w-xl mx-auto mt-10 space-y-6">
@@ -606,7 +606,7 @@ export async function renderUserList() {
 		app.innerHTML = `
 
 		  <div class="flex justify-between items-start p-4">
-      <a href="/" onclick="route('/')" class="text-gray-400 hover:text-white">Home</a>
+           <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
     	</div>
 			<div class="max-w-4xl mx-auto p-4">
 				<h1 class="text-2xl font-bold mb-4">Users</h1>
@@ -728,7 +728,7 @@ export async function renderUserProfile(userId: number) {
 
 		 setContent(`
 				<div class="flex justify-between items-start p-4">
-				<a href="/" onclick="route('/')" class="text-gray-400 hover:text-white">Home</a>
+				 <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
 				</div>
 
 			<div class="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl shadow-xl">

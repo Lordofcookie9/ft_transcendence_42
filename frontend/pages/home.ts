@@ -9,6 +9,9 @@ export function renderHome() {
   let userHtml = '';
 
   const userInfo = getUserInfo();
+  const profileLabel = userInfo.type === 'loggedInUser'
+    ? escapeHtml((userInfo as any).displayName || 'Profile')
+    : 'User Profile';
 
   try { localStorage.removeItem('game.inProgress'); } catch {}
   // Restore default body layout after tournament
@@ -17,9 +20,8 @@ export function renderHome() {
   document.body.style.alignItems = '';
   document.body.style.justifyContent = '';
   if (userInfo.type === 'loggedInUser'){
-    userHtml = `<a href="/profile" data-link class="text-blue-500 hover:underline">You are logged in</a>
-        <button type="button" id="logout" class="mt-4 bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500">
-          Logout and continue as guest
+    userHtml = `<button type="button" id="logout" class="mt-4 bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500">
+         Logout and continue as guest
         </button>`;
     }
 
@@ -40,7 +42,7 @@ export function renderHome() {
 
     <!-- Main Page -->
     <div class="flex justify-between items-start p-4">
-      <a href="/profile" onclick="route('/profile')" class="text-gray-400 hover:text-white">User Profile</a>
+      <a href="/profile" onclick="route('/profile')" class="text-gray-400 hover:text-white">${profileLabel}</a>
     </div>
 
     <div class="flex flex-col items-center mt-10 space-y-10">
@@ -203,6 +205,7 @@ export async function renderLocal1v1() {
   try { (window as any).tournament && ((window as any).tournament.uiActive = false); } catch {}
 }
 
+
 export async function renderPrivate1v1() {
   document.body.style.display = 'block';
   document.body.style.height = 'auto';
@@ -238,6 +241,24 @@ export async function renderPrivate1v1() {
     setContent(`<div class="p-8 text-red-400">Could not join room: ${escapeHtml(err?.message || '')}</div>`);
     return;
   }
+
+  // >>> EXACT PLACE TO PUT THIS <<<
+  // Sends the result to the backend so only private 1v1 matches increment PvP W/L.
+  async function reportResult(winner?: string) {
+    if (!winner) return; // nothing to report without a winner label
+    const iWon = (role === 'left') ? (winner === hostAlias) : (winner === guestAlias);
+    try {
+      await fetch('/api/game/result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ room_id: roomId, i_won: iWon }),
+      });
+    } catch (e) {
+      console.error('Failed to report result', e);
+    }
+  }
+  // >>> END PLACEMENT <<<
 
   setContent(`
     <div class="relative text-center mt-10">
@@ -344,10 +365,12 @@ export async function renderPrivate1v1() {
       return;
     }
 
-    // Mirrored game over
+    // Mirrored game over (guest receives this from host)
     if (msg.type === 'gameover') {
       hidePrestart();
       showEndOverlay(msg.detail);
+      // REPORT RESULT HERE for the guest (host reports locally below)
+      reportResult(msg.detail?.winner);
       if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
       return;
     }
@@ -370,12 +393,14 @@ export async function renderPrivate1v1() {
       onRemoteInput: (register) => { pushGuestInputToEngine = register; },
     });
 
-    // When the engine ends, announce to the guest
+    // When the engine ends on host, announce to the guest AND report result
     const onGameEnd = (e: any) => {
       const detail = e?.detail || {};
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'gameover', detail }));
       }
+      // REPORT RESULT HERE for the host
+      reportResult(detail?.winner);
     };
     window.addEventListener('pong:gameend', onGameEnd, { once: true });
 
@@ -430,6 +455,3 @@ export async function renderPrivate1v1() {
 
   try { (window as any).tournament && ((window as any).tournament.uiActive = false); } catch {}
 }
-
-
-

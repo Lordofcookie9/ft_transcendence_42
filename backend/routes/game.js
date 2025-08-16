@@ -10,7 +10,7 @@ module.exports = function registerGameRoutes(fastify) {
         if (!rec) return reply.code(404).send({ error: 'Recipient not found' });
 
         const ins = await fastify.db.run(
-          `INSERT INTO game_rooms (host_id, status) VALUES (?, 'pending')`,
+          `INSERT INTO game_rooms (host_id, status, mode) VALUES (?, 'pending', 'private_1v1')`,
           [request.user.id]
         );
         const roomId = ins.lastID;
@@ -28,6 +28,7 @@ module.exports = function registerGameRoutes(fastify) {
       }
     });
 
+    //Match history for private game
     fastify.post('/api/game/room/:id/join', { preValidation: [fastify.authenticate] }, async (request, reply) => {
       try {
         const roomId = Number(request.params.id);
@@ -72,6 +73,47 @@ module.exports = function registerGameRoutes(fastify) {
         return reply.code(500).send({ error: 'Failed to join match' });
       }
     });
+    fastify.post('/api/game/result', { preValidation: [fastify.authenticate] }, async (request, reply) => {
+      try {
+        const { room_id, i_won } = request.body || {};
+        const me = request.user.id;
 
-    // ---- COUNTER ----
+        if (!room_id || typeof i_won !== 'boolean') {
+          return reply.code(400).send({ error: 'room_id and i_won are required' });
+        }
+
+        const room = await fastify.db.get(
+          `SELECT id, host_id, guest_id, status, mode FROM game_rooms WHERE id = ?`,
+          [room_id]
+        );
+        if (!room) return reply.code(404).send({ error: 'room_not_found' });
+        if (room.mode !== 'private_1v1') return reply.send({ ok: true, ignored: 'not_private_1v1' });
+        if (room.host_id !== me && room.guest_id !== me) {
+          return reply.code(403).send({ error: 'not_in_room' });
+        }
+        if (!room.guest_id) return reply.code(400).send({ error: 'no_guest' });
+
+        const winner_id = i_won ? me : (room.host_id === me ? room.guest_id : room.host_id);
+        const loser_id  = i_won ? (room.host_id === me ? room.guest_id : room.host_id) : me;
+
+        // Finish exactly once to avoid double-counting if both players post
+        await fastify.db.run('BEGIN');
+        const upd = await fastify.db.run(
+          `UPDATE game_rooms SET status='finished' WHERE id=? AND status!='finished'`,
+          [room_id]
+        );
+
+        if (upd.changes > 0) {
+          await fastify.db.run(`UPDATE users SET pvp_wins = pvp_wins + 1   WHERE id = ?`, [winner_id]);
+          await fastify.db.run(`UPDATE users SET pvp_losses = pvp_losses + 1 WHERE id = ?`, [loser_id]);
+        }
+        await fastify.db.run('COMMIT');
+
+        return reply.send({ ok: true, updated: upd.changes > 0 });
+      } catch (err) {
+        try { await fastify.db.run('ROLLBACK'); } catch {}
+        request.log.error({ err }, 'Failed to record result');
+        return reply.code(500).send({ error: 'result_failed' });
+      }
+    });
 }

@@ -27,11 +27,14 @@ async function initDb() {
         password_hash TEXT NOT NULL,
         display_name TEXT UNIQUE NOT NULL,
         avatar_url TEXT DEFAULT './uploads/default-avatar.png',
-        
+
         twofa_method TEXT DEFAULT NULL CHECK (twofa_method IN ('app', 'email') OR twofa_method IS NULL),
         twofa_secret TEXT,
         twofa_verified INTEGER DEFAULT 0 CHECK (twofa_verified IN (0, 1)),
         twofa_enabled INTEGER DEFAULT 0 CHECK (twofa_enabled IN (0, 1)),
+
+        pvp_wins   INTEGER NOT NULL DEFAULT 0 CHECK (pvp_wins   >= 0),
+        pvp_losses INTEGER NOT NULL DEFAULT 0 CHECK (pvp_losses >= 0),
 
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         last_online TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -133,6 +136,7 @@ async function initDb() {
         host_id   INTEGER NOT NULL,
         guest_id  INTEGER,
         status    TEXT NOT NULL DEFAULT 'pending', -- pending | active | finished | cancelled
+        mode      TEXT NOT NULL DEFAULT 'public',   -- public | private_1v1
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (host_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (guest_id) REFERENCES users(id) ON DELETE SET NULL
