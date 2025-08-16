@@ -17,6 +17,13 @@ import {
   renderMain,
 } from './pages/index.js';
 
+import { startPresenceHeartbeat } from './utility.js';
+
+// Start presence heartbeat once on app load if a session already exists
+try {
+  if (localStorage.getItem('userId')) startPresenceHeartbeat();
+} catch {}
+
 function renderNotFound() {
   const el = document.getElementById('app');
   if (el) el.innerHTML = `<div class="text-white p-8">Page not found</div>`;

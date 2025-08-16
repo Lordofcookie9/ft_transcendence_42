@@ -3,6 +3,7 @@ import { renderUserList, renderUserProfile } from './users/userManagement.js';
 import { renderEntryPage, renderHome, updateCounter, updateChatBox } from './pages/index.js'
 import { route, handleLocation } from './router.js';
 
+
 //const app = document.getElementById('app');
 
 console.log("Main loaded ✅");

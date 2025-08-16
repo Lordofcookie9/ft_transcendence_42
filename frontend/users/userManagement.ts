@@ -1,5 +1,5 @@
 import { sendPrivateMessage } from '../pages/pages.js';
-import { setContent, formatDbDateTime } from '../utility.js';
+import { setContent, formatDbDateTime, startPresenceHeartbeat } from '../utility.js';
 import { route } from '../router.js';
 
 
@@ -157,6 +157,7 @@ export async function renderRegister() {
 				const user = await res.json();
 				localStorage.setItem("userId", user.id);
 				localStorage.setItem("display_name", user.display_name);
+				startPresenceHeartbeat();
 				await route('/profile');
 			} else {
 				const msg = await res.text();
@@ -296,6 +297,14 @@ function setProfileEvents(user: User) {
 		  });
   
 		  if (res.ok) {
+		  try {
+		  if (navigator.sendBeacon) {
+			const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
+			navigator.sendBeacon('/api/presence/offline', blob);
+		  } else {
+			await fetch('/api/presence/offline', { method: 'POST', credentials: 'include' });
+		  }
+		  } catch {}
 		  localStorage.clear();
 		  alert('Account deleted.');
 		  route('/');
@@ -398,8 +407,16 @@ function setProfileEvents(user: User) {
 			if (res.ok) {
 				if (user.twofa_method === 'email') {
 					alert('Email changed, please login again.');
-					localStorage.clear(); 
-					route('/login');
+				try {
+				if (navigator.sendBeacon) {
+					const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
+					navigator.sendBeacon('/api/presence/offline', blob);
+				} else {
+					await fetch('/api/presence/offline', { method: 'POST', credentials: 'include' });
+				}
+				} catch {}
+				localStorage.clear();
+				route('/login');
 				}
 				else {
 					alert('Email updated!');
@@ -552,7 +569,8 @@ export async function renderProfile() {
 	const user = await res.json();
 	localStorage.setItem("userId", user.id);
 	localStorage.setItem("display_name", user.display_name);
-  
+	startPresenceHeartbeat();
+
 	try {
 	setContent(renderProfileHTML(user));
 	setProfileEvents(user);
@@ -577,10 +595,16 @@ export async function renderProfile() {
 		  if (!response.ok) {
 			  throw new Error(`HTTP error! status: ${response.status}`);
 		  }
-  
-		  localStorage.clear(); 
-		
-		  renderEntryPage(); 
+		  try {
+		    if (navigator.sendBeacon) {
+		  	  const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
+		  	  navigator.sendBeacon('/api/presence/offline', blob);
+		    } else {
+		      await fetch('/api/presence/offline', { method: 'POST', credentials: 'include' });
+		    }
+		    } catch {}
+		  localStorage.clear();
+	      renderEntryPage(); 
 	  } catch (err) {
 		  console.error('Logout failed:', err instanceof Error ? err.message : err);
 		  alert('Logout failed. Please try again.');
@@ -839,6 +863,7 @@ export function renderLogin() {
 		  if (!data.requires2FA) {
 			localStorage.setItem('userId', data.user_id);
 			localStorage.setItem('display_name', data.display_name);
+			startPresenceHeartbeat();
 			route('/profile');
 		  } 
 		  else if (data.requires2FA) {
@@ -878,6 +903,7 @@ export function renderLogin() {
 				const finalData = await finalRes.json();
 				localStorage.setItem('userId', finalData.user_id);
 				localStorage.setItem('display_name', finalData.display_name);
+				startPresenceHeartbeat();
 				route('/profile');
 			  } 
 		  } 

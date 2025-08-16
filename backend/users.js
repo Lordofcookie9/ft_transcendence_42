@@ -528,13 +528,15 @@ fastify.get('/api/user/:id', async (req, reply) => {
         u.id,
         u.display_name,
         u.avatar_url,
-        u.account_status,
+        CASE
+          WHEN (strftime('%s','now') - strftime('%s', u.last_online)) < 75 THEN 'online'
+          ELSE 'offline'
+        END AS account_status,
         u.created_at,
         u.last_online,
         u.pvp_wins   AS wins,
         u.pvp_losses AS losses
-      FROM users u 
-      WHERE u.id = ?
+      FROM users u WHERE u.id = ?
       `,
       [userId]
     );
@@ -830,7 +832,11 @@ fastify.get('/api/user/:id', async (req, reply) => {
           u.id,
           u.display_name,
           u.avatar_url,
-          u.account_status,
+          -- Derive presence from last_online (online if seen in last 75s)
+          CASE
+            WHEN (strftime('%s','now') - strftime('%s', u.last_online)) < 75 THEN 'online'
+            ELSE 'offline'
+          END AS account_status,
           u.created_at,
           u.last_online,
           u.pvp_wins   AS wins,
@@ -884,9 +890,9 @@ fastify.get('/api/user/:id', async (req, reply) => {
             LIMIT 1
           ) AS last_match_opponent_score,
 
-          -- Latest private 1v1 finished time
+          -- Latest private 1v1 finished time (ISO UTC)
           (
-            SELECT m.finished_at
+            SELECT strftime('%Y-%m-%dT%H:%M:%SZ', m.finished_at)
             FROM matches m
             WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode = 'private_1v1'
             ORDER BY m.finished_at DESC
@@ -895,7 +901,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
 
         FROM users u
         ORDER BY 
-          CASE WHEN u.account_status = 'online' THEN 0 ELSE 1 END,
+          CASE WHEN (strftime('%s','now') - strftime('%s', u.last_online)) < 75 THEN 0 ELSE 1 END,
           u.last_online DESC
       `);
 
