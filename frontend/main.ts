@@ -1,6 +1,6 @@
 //FRONTEND main Typescript Tailwind
 import { renderUserList, renderUserProfile } from './users/userManagement.js';
-import { renderEntryPage, renderHome, renderLocal1v1, updateCounter,sendMessage, updateChatBox } from './pages/pages.js';
+import { renderEntryPage, renderHome, updateCounter, updateChatBox } from './pages/index.js'
 import { route, handleLocation } from './router.js';
 
 //const app = document.getElementById('app');

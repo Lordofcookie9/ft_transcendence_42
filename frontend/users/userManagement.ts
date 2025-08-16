@@ -1,4 +1,4 @@
-import { sendPrivateMessage, updateChatBox } from '../pages/pages.js';
+import { sendPrivateMessage } from '../pages/pages.js';
 import { setContent } from '../utility.js';
 import { route } from '../router.js';
 

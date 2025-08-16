@@ -15,7 +15,7 @@ import {
   renderGame,
   renderChat,
   renderMain,
-} from './pages/pages.js';
+} from './pages/index.js';
 
 function renderNotFound() {
   const el = document.getElementById('app');
