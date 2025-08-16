@@ -14,7 +14,10 @@ export async function renderRegister() {
 			<input name="email" type="email" placeholder="Email" required class="p-2 border text-black" />
 			<input name="password" type="password" placeholder="Password" required minlength="8" pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[@$!%*?&amp;]).{8,}$"
  				title="Must contain at least 8 characters, one uppercase, one lowercase, one number, and one special character '@$!%*?'" class="p-2 border text-black" />
-			<input name="avatar" type="file" accept="image/*" class="p-2 border" />
+			<div class="flex items-center gap-2">
+			  <input id="avatar" name="avatar" type="file" accept="image/*" class="p-2 border text-black" />
+			  <label for="avatar" class="text-sm text-gray-300">Upload profile picture</label>
+			</div>
 
 			<label class="flex items-center gap-2">
 				<input type="checkbox" id="enable-2fa" /> Enable 2FA
