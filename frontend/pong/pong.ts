@@ -136,10 +136,18 @@ if (opts.applyState) {
   let rightScore = parseInt(localStorage.getItem('p2Score') || '0', 10);
 
   const updateScoreDisplay = () => {
-    const leftEl = document.getElementById('player1-info');
+    const leftEl  = document.getElementById('player1-info');
     const rightEl = document.getElementById('player2-info');
-    if (leftEl)  leftEl.textContent  = `${p1Name}: ${leftScore}`;
-    if (rightEl) rightEl.textContent = `${p2Name}: ${rightScore}`;
+
+    // Prefer whatever name is already shown in the DOM to avoid regressions.
+    const leftNameFromDom  = (leftEl?.textContent  || '').split(':')[0].trim();
+    const rightNameFromDom = (rightEl?.textContent || '').split(':')[0].trim();
+
+    const p1 = leftNameFromDom  || localStorage.getItem('p1') || 'Player 1';
+    const p2 = rightNameFromDom || localStorage.getItem('p2') || 'Player 2';
+
+    if (leftEl)  leftEl.textContent  = `${p1}: ${leftScore}`;
+    if (rightEl) rightEl.textContent = `${p2}: ${rightScore}`;
   };
   updateScoreDisplay();
 
@@ -191,10 +199,11 @@ if (opts.applyState) {
 		rightPaddle.y = latestState.paddles.rightY;
 
 		if (leftScore !== latestState.scores.left || rightScore !== latestState.scores.right) {
-		leftScore  = latestState.scores.left;
-		rightScore = latestState.scores.right;
-		updateScoreDisplay();
-		}
+    leftScore  = latestState.scores.left;
+    rightScore = latestState.scores.right;
+    updateScoreDisplay();
+    try { window.dispatchEvent(new CustomEvent('pong:score', { detail: { left: leftScore, right: rightScore } })); } catch {}
+    }
 
 		draw(ctx, canvas, leftScore, rightScore, topWall, bottomWall, leftPaddle, rightPaddle, ball);
 	} else {
@@ -313,10 +322,15 @@ if (opts.applyState) {
         rightScore++;
         localStorage.setItem('p2Score', String(rightScore));
         updateScoreDisplay();
+        try { window.dispatchEvent(new CustomEvent('pong:score', { detail: { left: leftScore, right: rightScore } })); } catch {}
 
         if (rightScore >= WINNING_SCORE) {
           gameEnded = true;
-          const winner = p2Name;
+          const rightEl = document.getElementById('player2-info');
+          const winner =
+            (rightEl?.textContent || '').split(':')[0].trim() ||
+            localStorage.getItem('p2') || 'Player 2';
+
           try { window.dispatchEvent(new CustomEvent('pong:gameend', { detail: { winner } })); } catch {}
           try { onGameEnd?.(winner); } catch {}
           container.innerHTML = `
@@ -335,10 +349,15 @@ if (opts.applyState) {
         leftScore++;
         localStorage.setItem('p1Score', String(leftScore));
         updateScoreDisplay();
+        try { window.dispatchEvent(new CustomEvent('pong:score', { detail: { left: leftScore, right: rightScore } })); } catch {}
 
         if (leftScore >= WINNING_SCORE) {
           gameEnded = true;
-          const winner = p1Name;
+          const leftEl = document.getElementById('player1-info');
+          const winner =
+            (leftEl?.textContent || '').split(':')[0].trim() ||
+            localStorage.getItem('p1') || 'Player 1';
+
           try { window.dispatchEvent(new CustomEvent('pong:gameend', { detail: { winner } })); } catch {}
           try { onGameEnd?.(winner); } catch {}
           container.innerHTML = `

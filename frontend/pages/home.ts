@@ -2,7 +2,6 @@ import { getUserInfo, logout } from '../users/userManagement.js';
 import { setContent, escapeHtml } from '../utility.js';
 import { initPongGame } from "../pong/pong.js";
 import { updateChatBox, updateCounter } from './chat.js';
-import { route } from '../router.js';
 
 export function renderHome() {
   const alias = localStorage.getItem("alias") || "Guest";
@@ -232,8 +231,18 @@ export async function renderPrivate1v1() {
     hostAlias  = data.host_alias || 'P1';
     guestAlias = data.guest_alias || '— waiting —';
 
+        // Store host name immediately
     localStorage.setItem('p1', hostAlias);
-    localStorage.setItem('p2', guestAlias);
+
+    // IMPORTANT: do NOT store the "— waiting —" placeholder in localStorage.
+    // The engine reads from localStorage on first score and would cache it.
+    if (guestAlias && guestAlias !== '— waiting —') {
+      localStorage.setItem('p2', guestAlias);
+    } else {
+      localStorage.removeItem('p2'); // keep it unset until we learn the real name
+    }
+
+    // Reset scores
     localStorage.removeItem('p1Score');
     localStorage.removeItem('p2Score');
   } catch (err: any) {
@@ -242,7 +251,6 @@ export async function renderPrivate1v1() {
     return;
   }
 
-  // >>> EXACT PLACE TO PUT THIS <<<
   // Sends the result to the backend.
   async function reportResult() {
     // host=left=P1, guest=right=P2 in this view
@@ -299,6 +307,24 @@ export async function renderPrivate1v1() {
   const prestart = document.getElementById('prestart') as HTMLDivElement | null;
   const hidePrestart = () => { if (prestart) prestart.style.display = 'none'; };
 
+  //lock current names to avoid redisplay of "Waiting"
+  let lockedHostName = hostAlias;
+  let lockedGuestName = guestAlias;
+
+  
+  const updateNameplates = () => {
+    const p1Name = (localStorage.getItem('p1') && localStorage.getItem('p1') !== '— waiting —')
+      ? localStorage.getItem('p1')!
+      : lockedHostName;
+    const p2Stored = localStorage.getItem('p2');
+    const p2Name = (p2Stored && p2Stored !== '— waiting —') ? p2Stored : lockedGuestName;
+    const p1Score = localStorage.getItem('p1Score') || '0';
+    const p2Score = localStorage.getItem('p2Score') || '0';
+    const el1 = document.getElementById('player1-info');
+    const el2 = document.getElementById('player2-info');
+    if (el1) el1.innerHTML = `${escapeHtml(p1Name)}: ${escapeHtml(p1Score)}`;
+    if (el2) el2.innerHTML = `${escapeHtml(p2Name)}: ${escapeHtml(p2Score)}`;
+  };
   function showEndOverlay(detail?: any) {
     const el = document.createElement('div');
     el.className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-40';
@@ -323,6 +349,10 @@ export async function renderPrivate1v1() {
   window.addEventListener('beforeunload', cleanup);
   window.addEventListener('popstate', cleanup);
 
+  //keep score UI consistent when score change
+  const onScore = () => updateNameplates();
+  window.addEventListener('pong:score', onScore as any);
+
   ws.addEventListener('open', () => {
     console.log('[WS] open →', ws.url, 'protocol=', ws.protocol || '(none)');
     // Presence: tell the other side who I am
@@ -336,6 +366,7 @@ export async function renderPrivate1v1() {
     console.warn('[WS] close', e.code, e.reason);
     window.removeEventListener('beforeunload', cleanup);
     window.removeEventListener('popstate', cleanup);
+    window.removeEventListener('pong:score', onScore as any);
   });
 
   // Engine interop holders (the engine will give us these)
@@ -352,14 +383,17 @@ export async function renderPrivate1v1() {
       if (role === 'left') {
         const name = String(msg.alias);
         localStorage.setItem('p2', name);
+        lockedGuestName = name; // make sure our fallback is the real alias
         const el = document.getElementById('player2-info');
         if (el) el.innerHTML = `${escapeHtml(name)}: 0`;
       } else {
         const name = String(msg.alias);
         localStorage.setItem('p1', name);
+        lockedHostName = name;
         const el = document.getElementById('player1-info');
         if (el) el.innerHTML = `${escapeHtml(name)}: 0`;
       }
+       updateNameplates();
       return;
     }
 
@@ -377,6 +411,7 @@ export async function renderPrivate1v1() {
     // Mirrored game over (guest receives this from host)
     if (msg.type === 'gameover') {
       hidePrestart();
+      updateNameplates();
       showEndOverlay(msg.detail);
       // REPORT RESULT HERE for the guest (host reports locally below)
       reportResult();
@@ -404,6 +439,7 @@ export async function renderPrivate1v1() {
 
     // When the engine ends on host, announce to the guest AND report result
     const onGameEnd = (e: any) => {
+      updateNameplates();
       const detail = e?.detail || {};
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'gameover', detail }));
@@ -445,6 +481,7 @@ export async function renderPrivate1v1() {
       try { localStorage.removeItem('game.inProgress'); } catch {}
       window.removeEventListener('keydown', onKD, true);
       window.removeEventListener('keyup', onKU, true);
+      window.removeEventListener('pong:score', onScore as any);
       if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
     }, {
       control: 'right',
@@ -463,4 +500,5 @@ export async function renderPrivate1v1() {
   }
 
   try { (window as any).tournament && ((window as any).tournament.uiActive = false); } catch {}
+  updateNameplates();
 }
