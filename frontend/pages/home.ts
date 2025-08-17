@@ -393,7 +393,15 @@ export async function renderPrivate1v1() {
         const el = document.getElementById('player1-info');
         if (el) el.innerHTML = `${escapeHtml(name)}: 0`;
       }
-       updateNameplates();
+      updateNameplates();
+      try {
+      const name = String(msg.alias);
+      if (role === 'left') {
+        window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { right: name } }));
+      } else {
+        window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { left: name } }));
+      }
+    } catch {}
       return;
     }
 
@@ -436,6 +444,13 @@ export async function renderPrivate1v1() {
       },
       onRemoteInput: (register) => { pushGuestInputToEngine = register; },
     });
+
+    try {
+      const maybeRight = (localStorage.getItem('p2') || guestAlias || '').trim();
+      const detail: any = { left: hostAlias };
+      if (maybeRight && maybeRight !== '— waiting —') detail.right = maybeRight;
+      window.dispatchEvent(new CustomEvent('pong:setNames', { detail }));
+    } catch {}
 
     // When the engine ends on host, announce to the guest AND report result
     const onGameEnd = (e: any) => {
@@ -488,6 +503,14 @@ export async function renderPrivate1v1() {
       netMode: 'guest',
       applyState: (register) => { applyStateFromHost = register; },
     });
+    try {
+    const maybeLeft  = (localStorage.getItem('p1') || hostAlias  || '').trim();
+    const maybeRight = (localStorage.getItem('p2') || guestAlias || '').trim();
+    const detail: any = {};
+    if (maybeLeft) detail.left = maybeLeft;
+    if (maybeRight && maybeRight !== '— waiting —') detail.right = maybeRight;
+    window.dispatchEvent(new CustomEvent('pong:setNames', { detail }));
+  } catch {}
   }
 
   const replayBtn = document.getElementById('replay-btn') as HTMLButtonElement | null;

@@ -130,25 +130,51 @@ if (opts.applyState) {
 }
 
   // Names & scores (left = p1, right = p2)
-  const p1Name = localStorage.getItem('p1') || 'Player 1';
-  const p2Name = localStorage.getItem('p2') || 'Player 2';
-  let leftScore  = parseInt(localStorage.getItem('p1Score') || '0', 10);
-  let rightScore = parseInt(localStorage.getItem('p2Score') || '0', 10);
+  const PLACEHOLDERS = new Set(['— waiting —', 'Waiting', 'waiting', '—', '-', '']);
 
-  const updateScoreDisplay = () => {
-    const leftEl  = document.getElementById('player1-info');
-    const rightEl = document.getElementById('player2-info');
+const normalize = (s?: string | null): string => {
+  if (!s) return '';
+  const t = s.replace(/\s+/g, ' ').trim();
+  if (!t || PLACEHOLDERS.has(t)) return '';
+  return t;
+};
 
-    // Prefer whatever name is already shown in the DOM to avoid regressions.
-    const leftNameFromDom  = (leftEl?.textContent  || '').split(':')[0].trim();
-    const rightNameFromDom = (rightEl?.textContent || '').split(':')[0].trim();
+const getDomName = (id: 'player1-info' | 'player2-info') => {
+  const el = document.getElementById(id);
+  const text = el?.textContent || '';
+  return normalize(text.split(':')[0]);
+};
 
-    const p1 = leftNameFromDom  || localStorage.getItem('p1') || 'Player 1';
-    const p2 = rightNameFromDom || localStorage.getItem('p2') || 'Player 2';
+const getStoredName = (key: 'p1' | 'p2') => normalize(localStorage.getItem(key));
 
-    if (leftEl)  leftEl.textContent  = `${p1}: ${leftScore}`;
-    if (rightEl) rightEl.textContent = `${p2}: ${rightScore}`;
-  };
+// cache with sane defaults; will be updated by a custom event
+let nameCache = {
+  left:  getStoredName('p1') || 'Player 1',
+  right: getStoredName('p2') || 'Player 2'
+};
+
+// accept live updates from the SPA (home.ts)
+const onSetNames = (e: any) => {
+  const d = e?.detail || {};
+  if (normalize(d.left))  nameCache.left  = d.left.trim();
+  if (normalize(d.right)) nameCache.right = d.right.trim();
+  updateScoreDisplay();
+};
+window.addEventListener('pong:setNames', onSetNames);
+
+let leftScore  = parseInt(localStorage.getItem('p1Score') || '0', 10);
+let rightScore = parseInt(localStorage.getItem('p2Score') || '0', 10);
+
+// final resolvers used everywhere
+const leftName  = () => getDomName('player1-info') || getStoredName('p1') || nameCache.left  || 'Player 1';
+const rightName = () => getDomName('player2-info') || getStoredName('p2') || nameCache.right || 'Player 2';
+
+const updateScoreDisplay = () => {
+const leftEl = document.getElementById('player1-info');
+const rightEl = document.getElementById('player2-info');
+if (leftEl)  leftEl.textContent  = `${leftName()}: ${leftScore}`;
+if (rightEl) rightEl.textContent = `${rightName()}: ${rightScore}`;
+};
   updateScoreDisplay();
 
   // Game constants
@@ -183,6 +209,7 @@ if (opts.applyState) {
     if (rafId) cancelAnimationFrame(rafId);
     window.removeEventListener('keydown', onKeyDown, true);
     window.removeEventListener('keyup', onKeyUp, true);
+    window.removeEventListener('pong:setNames', onSetNames);
   }
   currentTeardown = destroy;
 
@@ -327,9 +354,7 @@ if (opts.applyState) {
         if (rightScore >= WINNING_SCORE) {
           gameEnded = true;
           const rightEl = document.getElementById('player2-info');
-          const winner =
-            (rightEl?.textContent || '').split(':')[0].trim() ||
-            localStorage.getItem('p2') || 'Player 2';
+          const winner = rightName();
 
           try { window.dispatchEvent(new CustomEvent('pong:gameend', { detail: { winner } })); } catch {}
           try { onGameEnd?.(winner); } catch {}
@@ -354,9 +379,7 @@ if (opts.applyState) {
         if (leftScore >= WINNING_SCORE) {
           gameEnded = true;
           const leftEl = document.getElementById('player1-info');
-          const winner =
-            (leftEl?.textContent || '').split(':')[0].trim() ||
-            localStorage.getItem('p1') || 'Player 1';
+          const winner = leftName();
 
           try { window.dispatchEvent(new CustomEvent('pong:gameend', { detail: { winner } })); } catch {}
           try { onGameEnd?.(winner); } catch {}
