@@ -360,7 +360,7 @@ export async function renderPrivate1v1() {
         Room #${escapeHtml(String(roomId))} — You are <strong>${role === 'left' ? 'Left (W/S)' : 'Right (↑/↓)'}</strong>
       </div>
       <div id="prestart" class="text-gray-300 text-sm mb-3">
-        Game will start when both players press <strong>↑</strong>.
+        Waiting for host to press <strong>Start</strong>…
       </div>
 
       <div class="flex justify-between items-center max-w-6xl mx-auto mb-4 px-8 text-xl font-semibold text-white">
