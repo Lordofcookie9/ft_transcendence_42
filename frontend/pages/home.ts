@@ -54,7 +54,7 @@ export function renderHome() {
           <h2 class="text-xl font-semibold mb-2">2 Player</h2>
           <div class="flex space-x-4 justify-center">
             <button onclick="startLocalGame()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Local</button>
-            <button class="bg-gray-600 text-white px-4 py-2 rounded opacity-50 cursor-not-allowed">Online</button>
+            <button onclick="startLocalVsAI()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Local VS AI</button>
           </div>
         </div>
 
@@ -158,6 +158,7 @@ export async function renderLocal1v1() {
   document.body.style.alignItems = '';
   document.body.style.justifyContent = '';
   try { localStorage.setItem('game.inProgress', 'local'); } catch {}
+  try { localStorage.removeItem('game.ai'); } catch {}
 
   // Left = opponent alias (p1), Right = you (p2).
   const leftName  = localStorage.getItem("p1") || "P1";
@@ -203,6 +204,80 @@ export async function renderLocal1v1() {
   // Explicitly mark tournament UI inactive when in 1v1
   try { (window as any).tournament && ((window as any).tournament.uiActive = false); } catch {}
 }
+
+export async function renderLocalVsAI() {
+  // Layout tweaks like renderLocal1v1
+  document.body.style.display = 'block';
+  document.body.style.height = 'auto';
+  document.body.style.alignItems = '';
+  document.body.style.justifyContent = '';
+  try { localStorage.setItem('game.inProgress', 'local-ai'); } catch {}
+  try { localStorage.setItem('game.ai', 'left'); } catch {}
+
+  // Left = AI, Right = you
+  const me = localStorage.getItem("display_name") || localStorage.getItem("alias") || "You";
+  const leftName  = localStorage.getItem("p1") || "AI";
+  const rightName = localStorage.getItem("p2") || me;
+
+  const s1 = localStorage.getItem("p1Score") || "0";
+  const s2 = localStorage.getItem("p2Score") || "0";
+
+  setContent(`
+    <div class="relative text-center mt-10">
+      <a href="/home" onclick="route('/home')" class="absolute top-0 left-0 ml-4 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm">← Home</a>
+      <h1 class="text-3xl font-bold mb-4">Local VS AI</h1>
+
+      <div class="flex justify-between items-center max-w-6xl mx-auto mb-4 px-8 text-xl font-semibold text-white">
+        <div id="player1-info" class="text-left w-1/3">${escapeHtml(leftName)}: ${escapeHtml(s1)}</div>
+        <button id="replay-btn" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded">Replay</button>
+        <div id="player2-info" class="text-right w-1/3">${escapeHtml(rightName)}: ${escapeHtml(s2)}</div>
+      </div>
+
+      <div class="flex justify-center">
+        <div id="pong-root" class="border-2 border-white bg-black"></div>
+      </div>
+
+      <div class="mt-6 text-gray-300 text-sm">
+        <p><strong>Controls:</strong> You (right paddle) — ArrowUp / ArrowDown. The left paddle is controlled by the AI.</p>
+      </div>
+    </div>
+  `);
+
+  // Start the match: user controls the right paddle; local mode.
+  const container = document.getElementById("pong-root");
+  if (container) {
+    initPongGame(
+      container,
+      () => {
+        // game finished
+        try { localStorage.removeItem('game.inProgress'); } catch {}
+        try { localStorage.removeItem('game.ai'); } catch {}
+      },
+      ({ control: 'right', netMode: 'local', ai: 'left' } as any)
+    );
+  }
+
+  // Simple replay handler: reset scores and reload this page
+  const replayBtn = document.getElementById("replay-btn") as HTMLButtonElement | null;
+  if (replayBtn) {
+    replayBtn.onclick = () => {
+      localStorage.setItem("p1Score", "0");
+      localStorage.setItem("p2Score", "0");
+      localStorage.setItem("game.ai", "left");
+      (window as any).route?.('/local-ai');  // or: (window as any).startLocalVsAI?.();
+    };
+  }
+}
+
+(window as any).startLocalVsAI = (window as any).startLocalVsAI || (() => {
+  const me = localStorage.getItem("display_name") || localStorage.getItem("alias") || "Player";
+  localStorage.setItem("p1", "AI"); // left = AI
+  localStorage.setItem("p2", me);   // right = you
+  localStorage.setItem("p1Score", "0");
+  localStorage.setItem("p2Score", "0");
+  localStorage.setItem("game.ai", "left"); // hint for the engine; we'll use this next
+  (window as any).route?.('/local-ai');
+});
 
 
 export async function renderPrivate1v1() {

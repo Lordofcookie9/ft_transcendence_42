@@ -55,6 +55,12 @@ export function initPongGame(
   // --- Net options / defaults
   const control: ControlSide = opts.control ?? 'both';
   const netMode: NetMode = opts.netMode ?? 'local';
+  const aiSide = (
+    (opts as any)?.ai ??
+    ((netMode === 'local' && localStorage.getItem('game.inProgress') === 'local-ai')
+      ? (localStorage.getItem('game.ai') as any)
+      : null)
+  ) as ('left' | 'right' | null);
   const emitState = opts.emitState;
 
   // --- Canvas
@@ -194,6 +200,26 @@ if (rightEl) rightEl.textContent = `${rightName()}: ${rightScore}`;
   const rightPaddle = new Paddle(canvas.width - paddleWidth - 40, canvas.height / 2 - paddleHeight / 2, paddleWidth, paddleHeight, '#fff');
   const ball = new Ball(canvas.width / 2, canvas.height / 2, ballSize, '#fff');
 
+  let ai: OpponentAI | null = null;
+  if (aiSide === 'left') {
+    ai = new OpponentAI(
+      rightPaddle,      // player (human) paddle
+      leftPaddle,       // AI-controlled paddle
+      keysPressed,      // shared keys map
+      canvas.height,    // field height
+      topWall,
+      bottomWall
+    );
+  } else if (aiSide === 'right') {
+    ai = new OpponentAI(
+      leftPaddle,       // player (human) paddle
+      rightPaddle,      // AI-controlled paddle
+      keysPressed,
+      canvas.height,
+      topWall,
+      bottomWall
+    );
+  }
   // First-serve "ready" gate (both players hold UP to start)
   let needInitialReady = true;
   ball.vx = 0; ball.vy = 0;
@@ -260,8 +286,32 @@ if (rightEl) rightEl.textContent = `${rightName()}: ${rightScore}`;
 	const guestUp    = (mode === 'host') ? !!remoteRightUp : !!keysPressed['ArrowUp'];
 	const readyRight = guestUp;
 
-	// Update paddles (right uses guest input when hosting)
-	updatePaddle(leftPaddle, { up: 'w', down: 's' }, keysPressed, paddleSpeed, canvas, topWall, bottomWall);
+  // Left paddle keys (copy base keys so we can overlay AI intent)
+  const keysForLeft: Record<string, boolean> = { ...(keysPressed as any) };
+
+  // AI: during the initial "ready" gate, hold UP for the AI side so the match can start
+  if (netMode === 'local' && aiSide === 'left' && needInitialReady) {
+    keysForLeft['w'] = true;
+  }
+
+  // Per-frame AI steering for the left side
+  if (netMode === 'local' && aiSide === 'left' && ai) {
+    ai.update(ball); // updates ai.lastTargetY via behavior tree
+
+    // press W/S toward the behavior-chosen target
+    keysForLeft['w'] = false;
+    keysForLeft['s'] = false;
+
+    const DEADZONE = 4; // pixels of tolerance to reduce jitter
+    const center = leftPaddle.y + leftPaddle.height / 2;
+
+    if (ai.lastTargetY != null) {
+      if (center > ai.lastTargetY + DEADZONE) keysForLeft['w'] = true;
+      else if (center < ai.lastTargetY - DEADZONE) keysForLeft['s'] = true;
+    }
+  }
+  updatePaddle(leftPaddle, { up: 'w', down: 's' }, keysForLeft, paddleSpeed, canvas, topWall, bottomWall);
+
 
 	const keysForRight: Record<string, boolean> = { ...(keysPressed as any) };
 	if (mode === 'host') {
@@ -311,8 +361,20 @@ if (rightEl) rightEl.textContent = `${rightName()}: ${rightScore}`;
 
 
     if (!paused && !gameEnded) {
-      // Left paddle from local keys (W/S)
-      updatePaddle(leftPaddle,  { up: 'w',       down: 's' },         keysPressed, paddleSpeed, canvas, topWall, bottomWall);
+      // Left paddle: overlay AI if active (local-only)
+      const keysForLeftMain: Record<string, boolean> = { ...(keysPressed as any) };
+      if (netMode === 'local' && aiSide === 'left' && ai) {
+        ai.update(ball);
+        keysForLeftMain['w'] = false;
+        keysForLeftMain['s'] = false;
+        const DEADZONE = 4;
+        const centerL = leftPaddle.y + leftPaddle.height / 2;
+        if (ai.lastTargetY != null) {
+          if (centerL > ai.lastTargetY + DEADZONE) keysForLeftMain['w'] = true;
+          else if (centerL < ai.lastTargetY - DEADZONE) keysForLeftMain['s'] = true;
+        }
+      }
+      updatePaddle(leftPaddle, { up: 'w', down: 's' }, keysForLeftMain, paddleSpeed, canvas, topWall, bottomWall);
 
       // Right paddle: merge remote guest input when hosting
       const keysForRight: Record<string, boolean> = { ...(keysPressed as any) };

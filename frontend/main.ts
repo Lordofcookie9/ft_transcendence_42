@@ -456,6 +456,7 @@ window.addEventListener('pong:gameend', (ev: any) => {
 
 // Setup flow
 (window as any).startTournamentSetup = async function () {
+  try { localStorage.removeItem('game.ai'); } catch {}
   let numStr = prompt('Enter number of participants (3–8):');
   if (numStr === null) return;
   let num = parseInt(numStr, 10);

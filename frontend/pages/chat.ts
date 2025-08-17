@@ -345,6 +345,7 @@ export async function updateCounter() {
 export async function renderTournament() {
   // Mark UI active so pong:gameend listener advances bracket.
   try { (window as any).tournament && ((window as any).tournament.uiActive = true); } catch {}
+  try { localStorage.removeItem('game.ai'); } catch {}
 
   const s1 = localStorage.getItem("p1Score") || "0";
   const s2 = localStorage.getItem("p2Score") || "0";
