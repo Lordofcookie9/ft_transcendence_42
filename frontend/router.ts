@@ -4,6 +4,7 @@ import {
   renderProfile,
   renderUserList,
   renderUserProfile,
+  renderOauthSuccess,
 } from './users/userManagement.js';
 
 import {
@@ -45,6 +46,7 @@ const routes: Record<string, () => Promise<void> | void> = {
   '/game': renderGame,
   '/chat': renderChat,
   '/main': renderMain,
+  '/oauth-success':renderOauthSuccess,
 };
 
 export function route(path: string) {
@@ -60,6 +62,11 @@ export async function handleLocation() {
     await renderUserProfile(id);
     return;
   }
+  if (path === '/login' && new URLSearchParams(location.search).get('created') === '1') {
+    renderOauthSuccess();
+    return;
+  }
+  
   const page = routes[path] || renderNotFound;
   await page();
 }

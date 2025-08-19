@@ -11,6 +11,7 @@ const nodemailer = require('nodemailer');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const fastifyWebsocket = require('@fastify/websocket');
+const axios = require('axios');
 
 
 const db = fastify.db;
@@ -23,8 +24,8 @@ if (!MAIL_APP || !MAIL_APPPW) {
 	// --- Plugins ---
 	fastify.register(fastifyCookie);
 	fastify.register(fastifyMulter.contentParser);
-  	fastify.register(fastifyCors, {
-	origin: 'http://localhost:3000',
+  fastify.register(fastifyCors, {
+	origin: 'https://localhost:3000',
 	credentials: true
  	 });
   
@@ -43,7 +44,66 @@ if (!MAIL_APP || !MAIL_APPPW) {
 	  
 		const multer = fastifyMulter({ dest: path.join(__dirname, 'uploads/') });
 		const upload = multer.single('avatar');
+    
 
+    fastify.get('/api/auth/42', async (req, reply) => {
+      const clientId = process.env.ECOLE_CLIENT_ID;      
+      const redirectUri = process.env.ECOLE_REDIRECT_URI;
+
+      const authUrl = `https://api.intra.42.fr/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=public`;
+
+      reply.redirect(authUrl);
+    });
+
+    fastify.get('/api/auth/42/callback', async (req, reply) => {
+      const { code } = req.query;
+      if (!code) return reply.code(400).send('Missing code');
+    
+      try {
+        const tokenRes = await axios.post(
+          'https://api.intra.42.fr/oauth/token',
+          new URLSearchParams({
+            grant_type: 'authorization_code',
+            client_id: process.env.ECOLE_CLIENT_ID,
+            client_secret: process.env.ECOLE_CLIENT_SECRET,
+            code,
+            redirect_uri: process.env.ECOLE_REDIRECT_URI
+          }),
+          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+        );
+    
+        const accessToken = tokenRes.data.access_token;
+    
+        const userRes = await axios.get('https://api.intra.42.fr/v2/me', {
+          headers: { Authorization: `Bearer ${accessToken}`}
+        });
+    
+        const oauth_id = userRes.data.id;
+        const email = userRes.data.email;
+        const display_name = userRes.data.login;
+        const avatar_url = userRes.data.image?.link || '/default-avatar.png';
+  
+        let user = await db.get('SELECT id, display_name FROM users WHERE oauth_provider = ? AND oauth_id = ?', ['42', oauth_id]);
+    
+        if (!user) {
+          await db.run(
+            `INSERT INTO users (email, display_name, avatar_url, oauth_provider, oauth_id, account_status)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [email, display_name, avatar_url || '/default-avatar.png', '42', oauth_id,'online']
+          );
+          user = await db.get('SELECT id, display_name FROM users WHERE oauth_provider = ? AND oauth_id = ?', ['42', oauth_id]);
+        }
+  
+        const token = fastify.jwt.sign({ id: user.id, display_name: user.display_name });
+        reply.setCookie('token', token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60*60*24*7 });
+        //return reply.code(201).send(user);
+        return reply.redirect('/profile');
+      } catch (err) {
+        console.error(err);
+        reply.code(500).send('42 OAuth error');
+      }
+    });
+    
   // 2fa helpers
     
     const transporter = nodemailer.createTransport({
@@ -90,9 +150,9 @@ if (!MAIL_APP || !MAIL_APPPW) {
 
     fastify.post('/api/register', { preHandler: upload }, async (req, reply) => {
       
-      let { email, password, display_name, enable_2fa, twofa_method, twofa_verified } = req.body;
+      let { email, password, display_name, enable_2fa, twofa_method, twofa_verified, oauth_provider, oauth_id, avatar_url } = req.body;
       const avatar = req.file;
-  
+    
       if (!email || !password || !display_name) {
         return reply.code(400).send('Missing required fields');
       }
@@ -286,152 +346,6 @@ fastify.post('/api/2fa/verify-code', async (req, reply) => {
     return reply.send({ success: true });
 });
 
-
-// fastify.post('/api/2fa/send-code', async (req, reply) => {
-//   try {
-//     const { twofaMethod: method, email } = req.body;
-
-//     if (!['app', 'email'].includes(method)) {
-//       return reply.code(400).send({ error: 'Invalid method' });
-//     }
-
-//     if (method === 'email') {
-//       const contact = email;
-//       if (!contact) {
-//         return reply.code(400).send({ error: 'Missing contact' });
-//       }
-
-//       const code = String(Math.floor(100000 + Math.random() * 900000));
-//       const expiresAt = Math.floor(Date.now() / 1000) + 5 * 60;
-
-//       try {
-//         await transporter.sendMail({
-//           from: `"Transcendance" <${process.env.MAIL_APP}>`,
-//           to: contact,
-//           subject: 'Your 2FA verification code',
-//           text: `Your verification code is ${code}`,
-//         });
-//       } catch (err) {
-//         req.log.error(err);
-//         return reply.code(500).send({ error: 'Email sending failed' });
-//       }
-
-//       const codeHash = await bcrypt.hash(code, 10);
-//       await db.run(
-//         `INSERT INTO twofa_codes (contact, method, code_hash, expires_at, verified)
-//          VALUES (?, ?, ?, ?, 0)`,
-//         [contact, method, codeHash, expiresAt]
-//       );
-
-//       return reply.send({ success: true });
-//     }
-
-//     if (method === 'app') {
-//       const now = Math.floor(Date.now() / 1000);
-
-//       const existing = await db.get(
-//         `SELECT secret_base32 FROM app_codes
-//          WHERE contact = ? AND verified = 0 AND expires_at > ?
-//          ORDER BY created_at DESC
-//          LIMIT 1`,
-//         [email, now]
-//       );
-
-//       let secret, otpauthUrl;
-//       if (existing) {
-//         secret = existing.secret_base32;
-//         otpauthUrl = speakeasy.otpauthURL({
-//           secret,
-//           label: `Transcendance:${email}`,
-//           issuer: 'Transcendance',
-//           encoding: 'base32'
-//         });
-//       } else {
-//         const secretObj = speakeasy.generateSecret({
-//           name: `Transcendance:${email}`,
-//           issuer: 'Transcendance'
-//         });
-//         secret = secretObj.base32;
-//         otpauthUrl = secretObj.otpauth_url;
-
-//         await db.run(
-//           `INSERT INTO app_codes (contact, secret_base32, expires_at, verified)
-//            VALUES (?, ?, ?, 0)`,
-//           [email, secret, now + 600]
-//         );
-//       }
-
-//       const qrCodeDataURL = await QRCode.toDataURL(otpauthUrl);
-//       return reply.send({ qrCodeDataURL });
-//     }
-
-//   } catch (err) {
-//     req.log.error(err);
-//     return reply.code(500).send({ error: 'Internal server error' });
-//   }
-// });
-
-
-// fastify.post('/api/2fa/verify-code', async (req, reply) => {
-//   const { twofaMethod, email, code } = req.body;
-
-//   if (!['app', 'email'].includes(twofaMethod)) {
-//     return reply.code(400).send({ error: 'Invalid method' });
-//   }
-//   if (!code) {
-//     return reply.code(400).send({ error: 'Missing code' });
-//   }
-
-//   const now = Math.floor(Date.now() / 1000);
-
-//   if (twofaMethod === 'email') {
-//     const row = await db.get(
-//       `SELECT * FROM twofa_codes
-//        WHERE method = ? 
-//          AND contact = ? 
-//          AND expires_at > ? 
-//          AND verified = 0
-//        ORDER BY expires_at DESC
-//        LIMIT 1`,
-//       [twofaMethod, email, now]
-//     );    
-
-//     if (!row || !(await bcrypt.compare(code, row.code_hash))) {
-//       return reply.code(400).send({ error: 'Invalid or expired code' });
-//     }
-
-//     await db.run(`UPDATE twofa_codes SET verified = 1 WHERE id = ?`, [row.id]);
-//     return reply.send({ success: true });
-//   }
-
-//   const row = await db.get(
-//     `SELECT * FROM app_codes 
-//      WHERE contact = ?
-//      AND expires_at > ?
-//      ORDER BY created_at DESC 
-//      LIMIT 1`,
-//     [email, now]
-//   );
-//   if (!row) {
-//     return reply.code(400).send({ error: 'No pending TOTP setup found' });
-//   }
-
-//   const verified = speakeasy.totp.verify({
-//     secret: row.secret_base32,
-//     encoding: 'base32',
-//     token: code,
-//     window: 1
-//   });
-
-//   if (!verified) {
-//     return reply.code(400).send({ error: 'Invalid authenticator code' });
-//   }
-
-//   // await db.run(`UPDATE app_codes SET verified = 1 WHERE id = ?`, [row.id]);
-//   return reply.send({ success: true });
-// });
-
-
 fastify.patch('/api/2fa/change', { preValidation: [fastify.authenticate] }, async (req, reply) => {
   try {
   
@@ -464,7 +378,8 @@ fastify.patch('/api/2fa/change', { preValidation: [fastify.authenticate] }, asyn
     `,[twofaMethod, userId]);
     await db.run(`DELETE FROM twofa_codes WHERE contact = ?`, [user.email]);
     await db.run(`DELETE FROM app_codes WHERE contact = ?`, [user.email]);
-    } 
+    }
+
   reply.send({ success: true });
 } catch (err) {
   req.log.error(err);
@@ -496,7 +411,7 @@ fastify.post('/api/login', async (req, reply) => {
   const user = await db.get(`SELECT * FROM users WHERE email = ?`, [email]);
   if (!user) return reply.code(401).send('Invalid credentials');
 
-  console.log('user in login:', user);
+  //console.log('user in login:', user);
 
   const match = await bcrypt.compare(password, user.password_hash);
   if (!match) return reply.code(401).send('Wrong credentials');
@@ -723,8 +638,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
         path: '/',
         httpOnly: true,
         secure: true,
-        sameSite: 'lax',
-        maxAge: 60 * 60 * 24 * 7
+        sameSite: 'lax'
       });
   
       reply.send({ message: 'Logged out successfully' });
@@ -735,14 +649,25 @@ fastify.get('/api/user/:id', async (req, reply) => {
   });
 
  fastify.get('/api/profile', { preValidation: [fastify.authenticate] }, async (req, reply) => {
-    const user = await db.get(
-      `SELECT id, email, display_name, avatar_url, twofa_method, twofa_enabled, twofa_verified, created_at, last_online, pvp_losses AS losses, pvp_wins AS wins, account_status FROM users WHERE id = ?`,
-      [req.user.id]
-    );
-    if (!user) return reply.code(404).send({ error: 'User not found' });
+
+  const user = await db.get(
+    `SELECT id, password_hash, email, display_name, avatar_url, twofa_method, twofa_enabled, twofa_verified, created_at, last_online, oauth_provider, pvp_losses AS losses, pvp_wins AS wins, account_status 
+     FROM users WHERE id = ?`,
+    [req.user.id]
+  );
+
+  if (!user) {
+    reply.clearCookie('token', { 
+      httpOnly: true, 
+      secure: true, 
+      sameSite: 'lax', 
+      path: '/' 
+    });
+    return reply.code(401).send({ error: 'Invalid session' });
+  }
     return user;
   });
-
+  
   fastify.patch('/api/avatar', {
     preValidation: [fastify.authenticate],
     preHandler: upload,
@@ -818,6 +743,34 @@ fastify.get('/api/user/:id', async (req, reply) => {
     );
     return { message: 'Profile updated', user: updatedUser };
   });
+
+  fastify.patch('/api/password', {preValidation: [fastify.authenticate]}, async (req, reply) => {
+    const { password } = req.body;
+  
+    if (!password || password.length < 8) {
+      return reply.code(400).send('Password must be at least 8 characters');
+    }
+  
+    try {
+      const hash = await bcrypt.hash(password, 10);
+  
+      await db.run(
+        `UPDATE users SET password_hash = ? WHERE id = ?`,
+        [hash, req.user.id]
+      );
+  
+      const updatedUser = await db.get(
+        `SELECT id, email, display_name, avatar_url, created_at, account_status, twofa_enabled, twofa_method FROM users WHERE id = ?`,
+        [req.user.id]
+      );
+  
+      return { message: 'Password updated', user: updatedUser };
+    } catch (err) {
+      req.log.error(err);
+      return reply.code(500).send('Internal server error');
+    }
+  });
+  
   
   fastify.get('/api/users', async (req, reply) => {
     try {
@@ -943,8 +896,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
       path: '/',
       httpOnly: true,
       secure: true,
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7
+      sameSite: 'lax'
     });
     return { message: 'Your account has been permanently deleted' };
   });

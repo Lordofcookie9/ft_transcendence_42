@@ -18,13 +18,13 @@ async function initDb() {
     // await db.exec(`DROP TABLE IF EXISTS users;`); // to delete
     // await db.exec(`DROP TABLE IF EXISTS twofa_codes;`); 
     // await db.exec(`DROP TABLE IF EXISTS app_codes;`); 
-    // await db.exec(`DROP TABLE IF EXISTS friends;`); 
+    // await db.exec(`DROP TABLE IF EXISTS friends;`);
 
     await db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
+        password_hash TEXT DEFAULT NULL,
         display_name TEXT UNIQUE NOT NULL,
         avatar_url TEXT DEFAULT './uploads/default-avatar.png',
 
@@ -32,6 +32,9 @@ async function initDb() {
         twofa_secret TEXT,
         twofa_verified INTEGER DEFAULT 0 CHECK (twofa_verified IN (0, 1)),
         twofa_enabled INTEGER DEFAULT 0 CHECK (twofa_enabled IN (0, 1)),
+
+        oauth_provider TEXT DEFAULT NULL, 
+        oauth_id TEXT DEFAULT NULL,
 
         pvp_wins   INTEGER NOT NULL DEFAULT 0 CHECK (pvp_wins   >= 0),
         pvp_losses INTEGER NOT NULL DEFAULT 0 CHECK (pvp_losses >= 0),

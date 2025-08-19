@@ -33,7 +33,20 @@ export async function renderRegister() {
 			</div>
 
 			<button type="submit" class="bg-green-600 text-white px-4 py-2">Register</button>
-		</form>
+
+			<div class="flex items-center my-6">
+				<div class="flex-grow h-px bg-gray-500"></div>
+				<span class="px-2 text-gray-400 text-sm">OR</span>
+				<div class="flex-grow h-px bg-gray-500"></div>
+			</div>
+
+			<div class="mt-2 flex flex-col gap-2">
+				<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-400 rounded px-4 py-2 hover:bg-gray-100 text-black bg-white">
+				<img src="/uploads/42_Logo.svg" alt="42" class="w-6 h-6" />
+				<span class="font-medium">Continue with 42</span>
+				</button>
+		</div>
+			</form>
 	`);
 
 	const form = document.getElementById('register-form') as HTMLFormElement;
@@ -171,7 +184,22 @@ export async function renderRegister() {
 			alert(err instanceof Error ? err.message : 'Network error');
 		}
 	})
+
+	document.getElementById("oauth")?.addEventListener("click", () => {
+		window.location.href = "/api/auth/42";
+	  });
 }
+
+export function renderOauthSuccess() {
+	setContent(`
+	  <div class="text-center mt-10">
+		<h2 class="text-xl font-bold text-green-600">✅ Account created!</h2>
+		<p class="mt-2">Redirecting to your profile...</p>
+	  </div>
+	`);
+	setTimeout(() => route('/profile'), 2000);
+  }
+  
 
 function renderProfileHTML(user: User) {
 	return `
@@ -181,7 +209,7 @@ function renderProfileHTML(user: User) {
   
 	<div class="max-w-xl mx-auto mt-10 space-y-6">
 	  <div class="text-center space-y-2">
-		<img src="${user.avatar_url}" alt="Avatar" class="w-36 h-36 rounded-full mx-auto shadow" id="avatar-preview" />
+		<img src="${user.avatar_url}" alt="Avatar" class="w-36 h-36 rounded-full mx-auto shadow object-cover" id="avatar-preview" />
   
 		<form id="avatar-form" class="flex items-center justify-center space-x-2 mt-2">
 		  <input
@@ -225,6 +253,19 @@ function renderProfileHTML(user: User) {
 		  >
 			Change name
 		  </button>
+		</form>
+	  </div>
+
+
+	  <div class="text-center max-w-xs mx-auto">
+		<form id="password-form" class="flex items-center space-x-2">
+		  <input type="password" name="password" placeholder="Enter new password"
+			required minlength="8"
+			class="flex-grow p-1 border border-gray-300 rounded text-gray-600 text-sm 
+			focus:outline-none focus:ring-1 focus:ring-blue-400"/>
+		  <button type="submit"
+			class="text-xs text-gray-700 bg-gray-100 rounded px-3 py-1 hover:bg-gray-200"
+			title="Set or change password">Set password</button>
 		</form>
 	  </div>
   
@@ -280,15 +321,27 @@ function renderProfileHTML(user: User) {
 		  <div id="users-list" class="mt-6 max-w-2xl mx-auto"></div>
 		</div>
 
-			<button onclick="route('/home')" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded">
+		<div class="text-center mt-4">
+        <a href="/profile/${user.id}" 
+           onclick="route('/profile/${user.id}'); return false;" 
+           class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
+           View your Public Page
+        </a>
+      	</div>
+		
+		<br/>
+
+		<button onclick="route('/home')" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded">
 			Go Play Game
 		</button>
 	  </div>
 	</div>
-  `;
+  `
 }
 
 function setProfileEvents(user: User) {
+
+	console.log('in set profile', user);
 
 	document.getElementById('logout')?.addEventListener('click', logout);
 	document.getElementById('delete-profile-btn')?.addEventListener('click', async () => {
@@ -357,7 +410,39 @@ function setProfileEvents(user: User) {
 		  alert("Something went wrong while updating your profile.");
 	  }
 	  });
-  
+
+	document.getElementById('password-form')?.addEventListener('submit', async (e) => {
+		e.preventDefault();
+		
+		const form = e.target as HTMLFormElement;
+		const newPassword = form.password.value.trim();
+	  
+		if (!newPassword || newPassword.length < 8) {
+		  alert("Password must be at least 8 characters.");
+		  return;
+		}
+	  
+		try {
+		  const res = await fetch('/api/password', {
+			method: 'PATCH',
+			credentials: 'include',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ password: newPassword })
+		  });
+	  
+		  if (res.ok) {
+			alert('Password set!');
+			renderProfile();
+		  } else {
+			const msg = await res.text();
+			alert('Error: ' + msg);
+		  }
+		} catch (err) {
+		  console.error(err);
+		  alert("Something went wrong while updating your profile.");
+		}
+	  });
+	  
 	// Avatar preview
 	const avatarInput = document.querySelector<HTMLInputElement>('input[name="avatar"]');
 	avatarInput?.addEventListener('change', () => {
@@ -478,6 +563,11 @@ function setProfileEvents(user: User) {
 	let res: Response | null = null;
 
 	if (enable2FA.checked && (method === 'email' || method === 'app')) {
+
+		if (!user.password_hash) {
+			  alert("You don't have password, set a password first.");
+			  return;
+			}
 		
 		res = await fetch('/api/2fa/send-code', {
 			method: 'POST',
@@ -499,12 +589,26 @@ function setProfileEvents(user: User) {
 					qrWindow.focus();
 				}	
 			}
+			
 			const code = prompt('Enter the verification code :');
 			if (code) {
+
+				// console.log('save-2fa clicked; user=', user, 'method=', method);
+
+
+				// let password: string | null = null;
+				// if (user.oauth_provider) {
+				// 	password = prompt("To activate 2fa, confirm, set or reset your password:");
+				// if (!password || password.length < 8) {
+				// 	alert("Password must be at least 8 characters.");
+				// 	return;
+				// }
+				// }
+
 				const verifyRes = await fetch('/api/2fa/verify-code', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ twofaMethod: method, email: user.email, code })
+					body: JSON.stringify({ twofaMethod: method, email: user.email, code})
 				});
 			
 				if (verifyRes.ok) {
@@ -546,6 +650,7 @@ export type User = {
 	twofa_secret: string | null;
 	twofa_verified: 0 | 1;
 	twofa_enabled: 0 | 1;
+	oauth_provider: string | null;
   
 	created_at: string;
 	last_online: string;
@@ -553,11 +658,11 @@ export type User = {
   }; 
 
 export async function renderProfile() {
-	const userId = localStorage.getItem('userId');
-	if (!userId) {
-	  alert("Please login");
-	  return route('/login');
-	}
+	// const userId = localStorage.getItem('userId');
+	// if (!userId) {
+	//   alert("Please login");
+	//   return route('/login');
+	// }
   
 	const res = await fetch('/api/profile', {
 	  method: 'GET',
@@ -577,18 +682,23 @@ export async function renderProfile() {
 	try {
 	setContent(renderProfileHTML(user));
 	setProfileEvents(user);
+	// setTimeout(() => {
+	// 	document.getElementById('welcome-banner')?.remove();
+	//   }, 2000);
 	} catch {
 		setContent(`<div class="text-white-600">Not authorized to view this page.</div>`);
 	}
 }
 
   export async function logout(): Promise<void> {
-	  try {const userId = localStorage.getItem('userId');
+	  try {
+		
+		// const userId = localStorage.getItem('userId');
 		  
-		  if (!userId) {
-			  alert("Please login");
-			  return route('/login');
-		  }
+		//   if (!userId) {
+		// 	  alert("Please login");
+		// 	  return route('/login');
+		//   }
   
 		  const response = await fetch('/api/logout', {
 			method: 'POST',
@@ -596,7 +706,7 @@ export async function renderProfile() {
 			  });
   
 		  if (!response.ok) {
-			  throw new Error(`HTTP error! status: ${response.status}`);
+			  throw new Error(`Can not log out! status: ${response.status}`);
 		  }
 		  try {
 		    if (navigator.sendBeacon) {
@@ -656,7 +766,7 @@ export async function renderUserList() {
 						}
 						return `
 							<li class="bg-gray-800 p-4 rounded shadow flex items-center space-x-4">
-								<img src="${u.avatar_url}" class="w-24 h-24 rounded-full border-4 border-indigo-500" />
+								<img src="${u.avatar_url}" class="w-24 h-24 rounded-full border-4 border-grey-400 object-cover" />
 								<div class="flex-1">
 									<div class="font-semibold">${u.display_name}</div>
 									<div class="text-sm text-gray-400">Status: ${u.account_status}</div>
@@ -676,7 +786,6 @@ export async function renderUserList() {
 		app.innerHTML = `<div class="text-red-500 text-center">Failed to load users</div>`;
 	}
 }
-
 
 export async function renderUserProfile(userId: number) {
   setContent(`<div class="text-center text-xl">Loading profile...</div>`);
@@ -803,8 +912,6 @@ export async function renderUserProfile(userId: number) {
   }
 }
 
-
-
 export function getUserInfo() {
 	const userId = localStorage.getItem("userId");
 	const displayName = localStorage.getItem("display_name");
@@ -836,7 +943,25 @@ export function renderLogin() {
 			<button type="submit" class="bg-blue-600 text-white px-4 py-2">Submit</button>
 			<button type="button" onclick="route('/register')" class="m-2 bg-green-500 text-white px-4 py-2 rounded">Create Account</button>
 		</form>
+
+		<div class="flex items-center my-6">
+			<div class="flex-grow h-px bg-gray-500"></div>
+			<span class="px-2 text-gray-400 text-sm">OR</span>
+			<div class="flex-grow h-px bg-gray-500"></div>
+		</div>
+
+		<div class="mt-2 flex flex-col gap-2">
+			<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-400 rounded px-4 py-2 hover:bg-gray-100 text-black bg-white">
+			<img src="/uploads/42_Logo.svg" alt="42" class="w-6 h-6" />
+			<span class="font-medium">Login with 42</span>
+			</button>
+		</div>
+
 	`);
+
+	document.getElementById("oauth")?.addEventListener("click", () => {
+		window.location.href = "/api/auth/42";
+	  });
 
 	document.getElementById('login-form')!.addEventListener('submit', async (e) => {
 		e.preventDefault();
@@ -892,7 +1017,6 @@ export function renderLogin() {
 				throw new Error(msg || '2FA verification failed');
 			  }
 
-			//const verifyData = await verifyRes.json();
 			const finalRes = await fetch('/api/final-login', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -917,6 +1041,7 @@ export function renderLogin() {
 			  }
 	  });	  
 }
+
 
 // Simple prompt-based private chat starter
 (window as any).startPrivateChat = async (userId: number, displayName?: string) => {
