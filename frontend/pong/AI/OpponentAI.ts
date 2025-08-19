@@ -6,7 +6,7 @@
 /*   By: rrichard <rrichard@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/11 11:19:16 by rrichard          #+#    #+#             */
-/*   Updated: 2025/08/12 17:54:32 by rrichard         ###   ########.fr       */
+/*   Updated: 2025/08/19 17:53:31 by rrichard         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -23,14 +23,8 @@ export class OpponentAI
 	private decisionInterval = 1000;
 	public lastTargetY?: number;
 
-    constructor(
-        private player: Paddle,
-        private aiPaddle: Paddle,
-        private keysPressed: { [key: string]: boolean },
-        private fieldHeight: number,
-        private topWall: Wall,
-        private bottomWall: Wall,
-    ) {}
+    constructor(private player: Paddle, private aiPaddle: Paddle, private keysPressed: { [key: string]: boolean },
+				private fieldHeight: number, private topWall: Wall, private bottomWall: Wall) {}
 
     update(ball: Ball)
     {

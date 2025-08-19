@@ -183,19 +183,19 @@ export function initPongGame(
   updateScoreDisplay();
 
   // Game constants
-  const paddleWidth = 20, paddleHeight = 110, paddleSpeed = 5;
-  const BASE_SPEED = 3, NORMAL_SPEED = 8, ballSize = 15;
+  const paddleWidth = 20, paddleHeight = 110, paddleSpeed = 500;
+  const SPEED = 700, MAX_SPEED_MULTIPLIER = 1.5, SPEED_INCREMENT = 0.05, ballSize = 15;
   const wallHeight = 5, wallGap = ballSize * 2, WINNING_SCORE = 10;
+  let speedMultiplier = 1.0, lastTimestamp = performance.now();
 
   // Walls & paddles
   const topWall = new Wall(wallGap, 0, canvas.width - wallGap * 2, wallHeight);
   const bottomWall = new Wall(wallGap, canvas.height - wallHeight, canvas.width - wallGap * 2, wallHeight);
   const playAreaTop = topWall.y + topWall.height;
   const playAreaBottom = bottomWall.y;
-  const playAreaHeight = playAreaBottom - playAreaTop;
 
-  const leftPaddle  = new Paddle(40, canvas.height / 2 - paddleHeight / 2, paddleWidth, paddleHeight, '#fff');
-  const rightPaddle = new Paddle(canvas.width - paddleWidth - 40, canvas.height / 2 - paddleHeight / 2, paddleWidth, paddleHeight, '#fff');
+  const leftPaddle  = new Paddle(40, canvas.height / 2 - paddleHeight / 2, paddleWidth, paddleHeight, '#fff', paddleSpeed);
+  const rightPaddle = new Paddle(canvas.width - paddleWidth - 40, canvas.height / 2 - paddleHeight / 2, paddleWidth, paddleHeight, '#fff', paddleSpeed);
   const ball = new Ball(canvas.width / 2, canvas.height / 2, ballSize, '#fff');
 
   let ai: OpponentAI | null = null;
@@ -235,7 +235,7 @@ export function initPongGame(
     startBtn.className = 'bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded mb-2';
     startBtn.addEventListener('click', () => {
       needInitialReady = false;
-      resetBall(ball, canvas, ballSize, BASE_SPEED);
+      resetBall(ball, canvas, ballSize, SPEED / 2);
       if (startBtn) startBtn.style.display = 'none';
     });
     // button will appear above the canvas
@@ -255,7 +255,7 @@ export function initPongGame(
   }
   currentTeardown = destroy;
 
-  function gameLoop() {
+  function gameLoop(timestamp: number) {
     if (!alive) return;
 
     // --- Guest: render-snapshot only (no physics)
@@ -311,6 +311,8 @@ export function initPongGame(
     }
 
     if (!paused && !gameEnded) {
+      const deltaTime = (timestamp - lastTimestamp) / 1000;
+	  lastTimestamp = timestamp;
       // Left paddle: overlay AI if active (local-only)
       const keysForLeftMain: Record<string, boolean> = { ...(keysPressed as any) };
       if (netMode === 'local' && aiSide === 'left' && ai) {
@@ -324,7 +326,7 @@ export function initPongGame(
           else if (centerL < ai.lastTargetY - DEADZONE) keysForLeftMain['s'] = true;
         }
       }
-      updatePaddle(leftPaddle, { up: 'w', down: 's' }, keysForLeftMain, paddleSpeed, canvas, topWall, bottomWall);
+      updatePaddle(leftPaddle, { up: 'w', down: 's' }, keysForLeftMain, canvas, topWall, bottomWall, deltaTime);
 
       // Right paddle: merge remote guest input when hosting
       const keysForRight: Record<string, boolean> = { ...(keysPressed as any) };
@@ -332,27 +334,29 @@ export function initPongGame(
         keysForRight['ArrowUp']   = remoteRightUp;
         keysForRight['ArrowDown'] = remoteRightDown;
       }
-      updatePaddle(rightPaddle, { up: 'ArrowUp', down: 'ArrowDown' }, keysForRight, paddleSpeed, canvas, topWall, bottomWall);
+      updatePaddle(rightPaddle, { up: 'ArrowUp', down: 'ArrowDown' }, keysForRight, canvas, topWall, bottomWall, deltaTime);
 
       // Physics
-      ball.update(playAreaTop, playAreaBottom);
+      ball.update(playAreaTop, playAreaBottom, deltaTime);
 
       // Collisions
       if (checkPaddleCollision(ball, leftPaddle) && ball.vx < 0) {
+		speedMultiplier = Math.min(speedMultiplier + SPEED_INCREMENT, MAX_SPEED_MULTIPLIER);
         const relY = (ball.y + ball.size / 2) - (leftPaddle.y + leftPaddle.height / 2);
         const normY = relY / (leftPaddle.height / 2);
         const angle = normY * Math.PI / 4;
-        ball.vx = Math.abs(NORMAL_SPEED * Math.cos(angle));
-        ball.vy = NORMAL_SPEED * Math.sin(angle);
+        ball.vx = Math.abs(SPEED * speedMultiplier * Math.cos(angle));
+        ball.vy = SPEED * speedMultiplier * Math.sin(angle);
         ball.x = leftPaddle.x + leftPaddle.width;
       }
 
       if (checkPaddleCollision(ball, rightPaddle) && ball.vx > 0) {
+		speedMultiplier = Math.min(speedMultiplier + SPEED_INCREMENT, MAX_SPEED_MULTIPLIER);
         const relY = (ball.y + ball.size / 2) - (rightPaddle.y + rightPaddle.height / 2);
         const normY = relY / (rightPaddle.height / 2);
         const angle = normY * Math.PI / 4;
-        ball.vx = -Math.abs(NORMAL_SPEED * Math.cos(angle));
-        ball.vy = NORMAL_SPEED * Math.sin(angle);
+        ball.vx = -Math.abs(SPEED * speedMultiplier * Math.cos(angle));
+        ball.vy = SPEED * speedMultiplier * Math.sin(angle);
         ball.x = rightPaddle.x - ball.size;
       }
 
@@ -376,7 +380,8 @@ export function initPongGame(
           `;
           destroy();
         } else {
-          resetBall(ball, canvas, ballSize, BASE_SPEED);
+			speedMultiplier = 1.0;
+			resetBall(ball, canvas, ballSize, SPEED / 2);
         }
       }
 
@@ -400,7 +405,8 @@ export function initPongGame(
           `;
           destroy();
         } else {
-          resetBall(ball, canvas, ballSize, BASE_SPEED);
+			speedMultiplier = 1.0;
+			resetBall(ball, canvas, ballSize, SPEED / 2);
         }
       }
     }
@@ -420,7 +426,7 @@ export function initPongGame(
     rafId = requestAnimationFrame(gameLoop);
   }
 
-  gameLoop();
+  requestAnimationFrame(gameLoop);
   container.appendChild(canvas);
   try { canvas.focus(); } catch {}
 }

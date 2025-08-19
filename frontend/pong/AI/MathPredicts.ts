@@ -6,25 +6,26 @@
 /*   By: rrichard <rrichard@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/11 10:40:27 by rrichard          #+#    #+#             */
-/*   Updated: 2025/08/12 17:54:38 by rrichard         ###   ########.fr       */
+/*   Updated: 2025/08/19 17:53:07 by rrichard         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 import { Ball } from "../Ball.js";
 import { Paddle } from "../Paddle.js";
 
-export function predictY(ball: Ball, t: number, minY: number, maxY: number): number
+export function predictInvisibleBallY(ball: Ball, aiPaddle: Paddle, minY: number, maxY: number, invisibleBallSpeedMultiplier: number)
 {
+	let		x = ball.x;
 	let		y = ball.y;
-	let		vy = ball.vy;
+	let		vx = ball.vx * invisibleBallSpeedMultiplier;
+	let		vy = ball.vy * invisibleBallSpeedMultiplier;
 	const	size = ball.size || 0;
-	let		timeLeft = t;
-	let		bounceCount = 0;
-	
-	while (timeLeft > 0)
+	const	aiX = aiPaddle.x;
+
+	while ((vx > 0 && x < aiX) || (vx < 0 && x > aiX))
 	{
-		let nextWallY;
-		let timeToWall;
+		let	timeToWall;
+		let	nextWallY;
 		if (vy > 0)
 		{
 			nextWallY = maxY - size;
@@ -35,32 +36,18 @@ export function predictY(ball: Ball, t: number, minY: number, maxY: number): num
 			nextWallY = minY;
 			timeToWall = (nextWallY - y) / vy;
 		}
-		if (timeToWall > timeLeft || timeToWall < 0)
+		let	timeToPaddle = (aiX - x) / vx;
+		if (timeToPaddle >= 0 && (timeToPaddle < timeToWall || timeToWall < 0))
 		{
-			y += vy * timeLeft;
-			break;
+			y += vy * timeToPaddle;
+			break ;
 		}
 		else
 		{
+			x += vx * timeToWall;
 			y = nextWallY;
 			vy = -vy;
-			timeLeft -= timeToWall;
-			bounceCount++;
 		}
 	}
-	const errorMagnitude = 40 + bounceCount * 40;
-	const error = (Math.random() - 0.5) * errorMagnitude;
-	y += error;
 	return (y);
-}
-
-export function computeTimeToReach(ball: Ball, paddle: Paddle): number | null
-{
-	const dx = paddle.x - ball.x;
-
-	if ((dx > 0 && ball.vx <= 0) || (dx < 0 && ball.vx >= 0))
-		return (null);
-	const t = dx / ball.vx;
-
-	return (t);
 }

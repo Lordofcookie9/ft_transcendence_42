@@ -6,13 +6,13 @@
 /*   By: rrichard <rrichard@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/11 12:22:46 by rrichard          #+#    #+#             */
-/*   Updated: 2025/08/12 16:43:15 by rrichard         ###   ########.fr       */
+/*   Updated: 2025/08/19 17:53:50 by rrichard         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 import { SequenceNode, SelectorNode, Context, Node } from "./BehaviorTreeNodes.js";
-import { aimStraight, aimOpposite, followBall, returnToCenter } from "./AIActions.js";
-import { ballMovingAwayFromAI, ballMovingTowardAI, isShallowAngle, isCenterZone, isWallZone } from "./AIConditions.js";
+import { followBall, anticipateWithInvisibleBall } from "./AIActions.js";
+import { ballMovingAwayFromAI, ballMovingTowardAI } from "./AIConditions.js";
 
 export class PongBehaviorTree
 {
@@ -23,11 +23,7 @@ export class PongBehaviorTree
 		this.tree = new SelectorNode([
 			new SequenceNode([
 				ballMovingTowardAI,
-				new SelectorNode([
-					new SequenceNode([isWallZone, aimStraight]),
-					new SequenceNode([isCenterZone, isShallowAngle, aimOpposite]),
-					new SequenceNode([isCenterZone, aimStraight]),
-				]),
+				anticipateWithInvisibleBall,
 			]),
 			new SequenceNode([
 				ballMovingAwayFromAI,

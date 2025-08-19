@@ -6,7 +6,7 @@
 /*   By: rrichard <rrichard@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/12 17:32:34 by rrichard          #+#    #+#             */
-/*   Updated: 2025/08/12 17:37:29 by rrichard         ###   ########.fr       */
+/*   Updated: 2025/08/19 17:55:20 by rrichard         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -18,7 +18,6 @@ export const keysPressed: { [key: string]: boolean } = {};
 
 let keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 let keyupHandler: ((e: KeyboardEvent) => void) | null = null;
-
 
 export function setupControls()
 {
@@ -62,18 +61,22 @@ export function updatePaddle(
 	paddle: Paddle,
 	keys: { up: string, down: string },
 	keysPressed: { [key: string]: boolean },
-	paddleSpeed: number,
 	canvas: HTMLCanvasElement,
 	topWall: Wall,
-	bottomWall: Wall
-) {
-	if (keysPressed[keys.up])
-		paddle.y = Math.max(0, paddle.y - paddleSpeed);
-	if (keysPressed[keys.down])
-		paddle.y = Math.min(canvas.height - paddle.height, paddle.y + paddleSpeed);
+	bottomWall: Wall,
+	deltaTime: number)
+{
+	if (keysPressed[keys.up]) {
+		paddle.y = Math.max(0, paddle.y - paddle.speed * deltaTime);
+	}
+	if (keysPressed[keys.down]) {
+		paddle.y = Math.min(canvas.height - paddle.height, paddle.y + paddle.speed * deltaTime);
+	}
 
-	if (topWall.checkCollision(paddle))
+	if (topWall.checkCollision(paddle)) {
 		paddle.y = topWall.y + topWall.height;
-	if (bottomWall.checkCollision(paddle))
+	}
+	if (bottomWall.checkCollision(paddle)) {
 		paddle.y = bottomWall.y - paddle.height;
+	}
 }

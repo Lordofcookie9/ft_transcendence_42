@@ -6,7 +6,7 @@
 /*   By: rrichard <rrichard@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/12 17:38:05 by rrichard          #+#    #+#             */
-/*   Updated: 2025/08/12 17:38:43 by rrichard         ###   ########.fr       */
+/*   Updated: 2025/08/19 17:54:22 by rrichard         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -26,12 +26,12 @@ export class Ball {
         ctx.fillRect(this.x, this.y, this.size, this.size);
     }
 
-    update(minY: number, maxY: number)
+    update(minY: number, maxY: number, deltaTime: number)
 	{
-        this.x += this.vx;
-        this.y += this.vy;
+        this.x += this.vx * deltaTime;
+        this.y += this.vy * deltaTime;
 
-        const top = minY;
+		const top = minY;
 		const bottom = maxY - this.size;
 
 		if (this.y <= top)
