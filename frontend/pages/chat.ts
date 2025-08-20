@@ -60,39 +60,79 @@ export async function updateChatBox() {
     return;
   }
 
-  // Build chat HTML
-  const html = messages.map((msg) => {
-    const ts = parseTimestamp(msg.timestamp);
-    const timestamp = ts
-      ? formatDbTime(msg.timestamp)
-      : '';
+  // --- Preload room status for any private 1v1 invites so we can drop full ones ---
+  const inviteRoomIds = Array.from(new Set(
+    messages
+      .map((m) => {
+        const match = /<\(invite\):(\d+)>/.exec(m.message);
+        return match ? Number(match[1]) : null;
+      })
+      .filter((x): x is number => Number.isFinite(x as number))
+  ));
 
-    const aliasMarkup = renderChatAlias(msg); // shows the clickable name that opens the menu
-    let bodyHtml = '';
-    const inviteMatch = /<\(invite\):(\d+)>/.exec(msg.message);
-    if (inviteMatch) {
-      const roomId = inviteMatch[1];
-      bodyHtml = `
-        <span class="inline-flex items-center gap-2">
-          <span class="italic text-green-300">invited you to play</span>
-          <button class="px-2 py-0.5 border border-green-400 rounded hover:bg-green-700"
-                  onclick="joinGameInvite(${Number(roomId)})">
-            Join match
-          </button>
-        </span>
+  type RoomStatus = { has_guest: boolean; joinable?: boolean };
+  const statusMap: Record<number, RoomStatus> = {};
+
+  await Promise.all(
+    inviteRoomIds.map(async (rid) => {
+      try {
+        const r = await fetch(`/api/game/room/${rid}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        statusMap[rid] = { has_guest: !!d?.has_guest, joinable: d?.joinable };
+      } catch {
+        // If status fails, leave undefined -> we won't drop the invite
+      }
+    })
+  );
+
+  // Build chat HTML (skip invites where the room is already full)
+  const html = messages
+    .map((msg) => {
+      const ts = parseTimestamp(msg.timestamp);
+      const timestamp = ts ? formatDbTime(msg.timestamp) : '';
+
+      const aliasMarkup = renderChatAlias(msg);
+      const inviteMatch = /<\(invite\):(\d+)>/.exec(msg.message);
+
+      // If it's an invite, drop it when the room is full (has_guest = true)
+      if (inviteMatch) {
+        const roomId = Number(inviteMatch[1]);
+        const st = statusMap[roomId];
+        const isFull = st?.has_guest === true || st?.joinable === false;
+        if (isFull) return ''; // REMOVE the invite from chat
+
+        // Otherwise, render a normal join button
+        const buttonHtml = `<button
+            class="px-2 py-0.5 border rounded invite-btn border-green-400 hover:bg-green-700"
+            data-invite-btn="1"
+            data-room-id="${roomId}"
+            onclick="joinGameInvite(${roomId})"
+          >Join match</button>`;
+
+        return `
+          <div class="msg" data-ts="${msg.timestamp}">
+            <span class="text-gray-400">[${timestamp}]</span>
+            <span class="alias">${aliasMarkup}</span>:
+            <span class="inline-flex items-center gap-2">
+              <span class="italic text-green-300">invited you to play</span>
+              ${buttonHtml}
+            </span>
+          </div>
+        `;
+      }
+
+      // Regular message
+      return `
+        <div class="msg" data-ts="${msg.timestamp}">
+          <span class="text-gray-400">[${timestamp}]</span>
+          <span class="alias">${aliasMarkup}</span>:
+          <span class="body break-words">${escapeHtml(msg.message)}</span>
+        </div>
       `;
-    } else {
-      bodyHtml = `<span class="body break-words">${escapeHtml(msg.message)}</span>`;
-    }
-
-    return `
-      <div class="msg" data-ts="${msg.timestamp}">
-        <span class="text-gray-400">[${timestamp}]</span>
-        <span class="alias">${aliasMarkup}</span>:
-        ${bodyHtml}
-      </div>
-    `;
-  }).join('');
+    })
+    .filter(Boolean) // drop removed invites
+    .join('');
 
   chatBox.innerHTML = html;
   chatBox.scrollTop = chatBox.scrollHeight;
@@ -107,6 +147,7 @@ export async function updateChatBox() {
     return isNaN(t) ? null : t;
   }
 }
+
 
 function renderChatAlias(msg: { user_id?: number | null; alias: string }): string {
   const name = escapeHtml(msg.alias);

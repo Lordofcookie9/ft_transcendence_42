@@ -43,6 +43,21 @@ module.exports = function registerSockets(fastify) {
     const hdrs = request.headers || {};
     const urlish = request.url || '';
 
+
+    const cookie = String(request.headers.cookie || '');
+    const tokenMatch = /(?:^|;\s*)token=([^;]+)/.exec(cookie);
+    let user = null;
+    if (tokenMatch) {
+      try { user = fastify.jwt.verify(decodeURIComponent(tokenMatch[1])); }
+      catch (_) { /* invalid token */ }
+    }
+    if (!user) {
+      try { ws.close(1008, 'unauthorized'); } catch {}
+      return;
+    }
+
+    // Optionally store user on the connection for audit:
+    ws.user = { id: user.id, display_name: user.display_name };
     // 1) From path (/ws/game/:id)
     let roomId = '';
     let role = '';

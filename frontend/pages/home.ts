@@ -41,11 +41,11 @@ export function renderHome() {
 
     <!-- Main Page -->
     <div class="flex justify-between items-start p-4">
-      <a href="/profile" onclick="route('/profile')" class="text-gray-400 hover:text-white">${profileLabel}</a>
+      <a href="/profile" onclick="route('/profile')" class="fixed top-3 left-5 text-2xl font-semibold text-white hover:text-gray-300 z-50">${profileLabel}</a>
     </div>
 
-    <div class="flex flex-col items-center mt-10 space-y-10">
-      <h1 class="text-4xl font-bold">Transcendence</h1>
+    <div class="flex flex-col items-center mt-6 space-y-10">
+      <h1 class="text-6xl font-bold">Transcendence</h1>
 
       ${userHtml} 
 

@@ -73,6 +73,40 @@ module.exports = function registerGameRoutes(fastify) {
         return reply.code(500).send({ error: 'Failed to join match' });
       }
     });
+    fastify.get('/api/game/room/:id', async (request, reply) => {
+      try {
+        const roomId = Number(request.params.id);
+        if (!roomId || Number.isNaN(roomId)) {
+          return reply.code(400).send({ error: 'invalid_room_id' });
+        }
+        const row = await fastify.db.get(`
+          SELECT gr.id, gr.host_id, gr.guest_id, gr.status, gr.mode,
+                hu.display_name AS host_alias,
+                gu.display_name AS guest_alias
+          FROM game_rooms gr
+          JOIN users hu ON hu.id = gr.host_id
+          LEFT JOIN users gu ON gu.id = gr.guest_id
+          WHERE gr.id = ?
+        `, [roomId]);
+        if (!row) return reply.code(404).send({ error: 'room_not_found' });
+        const hasHost = !!row.host_id;
+        const hasGuest = !!row.guest_id;
+        return reply.send({
+          ok: true,
+          room_id: row.id,
+          status: row.status,
+          mode: row.mode,
+          has_host: hasHost,
+          has_guest: hasGuest,
+          host_alias: row.host_alias || null,
+          guest_alias: row.guest_alias || null,
+          joinable: row.mode === 'private_1v1' && !hasGuest
+        });
+      } catch (err) {
+        request.log?.error?.({ err }, 'Failed to fetch room status');
+        return reply.code(500).send({ error: 'failed_to_fetch_room' });
+      }
+    });
     fastify.post('/api/game/result', { preValidation: [fastify.authenticate] }, async (request, reply) => {
       try {
         const { room_id, i_won, host_score: hs, guest_score: gs } = request.body || {};
@@ -125,3 +159,4 @@ module.exports = function registerGameRoutes(fastify) {
       }
     });
 }
+

@@ -14,6 +14,7 @@ import { Paddle } from "./Paddle.js";
 import { Ball } from "./Ball.js";
 import { Wall } from "./Wall.js";
 import { draw } from "./draw.js";
+import { escapeHtml } from '../utility.js';
 import { keysPressed, updatePaddle, teardownControls } from "./controls.js"; // no setupControls here
 import { checkPaddleCollision } from "./collision.js";
 import { resetBall, paused, togglePause } from "./gameState.js";
@@ -373,9 +374,10 @@ export function initPongGame(
 
           try { window.dispatchEvent(new CustomEvent('pong:gameend', { detail: { winner } })); } catch {}
           try { onGameEnd?.(winner); } catch {}
+          const winnerEsc = escapeHtml(winner);
           container.innerHTML = `
             <div class="text-white text-center space-y-4">
-              <h2 class="text-4xl font-bold">${winner} wins!</h2>
+              <h2 class="text-4xl font-bold">${winnerEsc} wins!</h2>
             </div>
           `;
           destroy();
@@ -398,9 +400,10 @@ export function initPongGame(
 
           try { window.dispatchEvent(new CustomEvent('pong:gameend', { detail: { winner } })); } catch {}
           try { onGameEnd?.(winner); } catch {}
+          const winnerEsc = escapeHtml(winner);
           container.innerHTML = `
             <div class="text-white text-center space-y-4">
-              <h2 class="text-4xl font-bold">${winner} wins!</h2>
+              <h2 class="text-4xl font-bold">${winnerEsc} wins!</h2>
             </div>
           `;
           destroy();
