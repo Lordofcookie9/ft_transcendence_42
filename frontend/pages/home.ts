@@ -11,6 +11,7 @@ export function renderHome() {
   const profileLabel = userInfo.type === 'loggedInUser'
     ? escapeHtml((userInfo as any).displayName || 'Profile')
     : 'User Profile';
+  const profileHref = userInfo.type === 'loggedInUser' ? '/profile' : '/login';
 
   try { localStorage.removeItem('game.inProgress'); } catch {}
   // Restore default body layout after tournament
@@ -41,7 +42,7 @@ export function renderHome() {
 
     <!-- Main Page -->
     <div class="flex justify-between items-start p-4">
-      <a href="/profile" onclick="route('/profile')" class="fixed top-3 left-5 text-2xl font-semibold text-white hover:text-gray-300 z-50">${profileLabel}</a>
+      <a href="${profileHref}" onclick="route('${profileHref}')" class="fixed top-3 left-3 text-2xl font-semibold text-white hover:text-gray-300 z-50">${profileLabel}</a>
     </div>
 
     <div class="flex flex-col items-center mt-6 space-y-10">

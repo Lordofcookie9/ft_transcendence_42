@@ -11,6 +11,13 @@ export function renderEntryPage() {
 
   let identification = "";
 
+  // Top-left user/profile link setup
+  const userInfo = getUserInfo();
+  const profileLabel = userInfo.type === 'loggedInUser'
+    ? (userInfo as any).displayName || 'Profile'
+    : 'User Profile';
+  const profileHref = userInfo.type === 'loggedInUser' ? '/profile' : '/login';
+
   if (userId) {
     identification = `
       <div class="p-4">
@@ -49,6 +56,11 @@ export function renderEntryPage() {
 
   setContent(`
     <div class="text-center mt-10 space-y-6">
+      <a
+        href="${profileHref}"
+        onclick="route('${profileHref}')"
+        class="fixed top-3 left-3 text-2xl font-semibold text-white hover:text-gray-300 z-50"
+      >${escapeHtml(profileLabel)}</a>
       <h1 class="text-3xl font-bold mb-6">Welcome to Transcendence</h1>
       ${identification}
       <div class="mt-10">
