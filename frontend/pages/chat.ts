@@ -435,6 +435,10 @@ export async function renderTournament() {
   const container = document.getElementById("pong-root");
   if (container) {
     // Rely on the global 'pong:gameend' listener gated by uiActive.
+    try {
+      localStorage.setItem('p1Score','0');
+      localStorage.setItem('p2Score','0');
+    } catch {}
     initPongGame(container);
   }
 

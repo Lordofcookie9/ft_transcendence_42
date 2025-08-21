@@ -90,6 +90,7 @@ export function initPongGame(
   }
 
   function onKeyDown(e: KeyboardEvent) {
+    if (freezeInputs) { e.preventDefault(); e.stopPropagation(); return; }
     // Allow host to press ArrowUp/Down during initial ready screen
     const allowHostArrowsForReady = (netMode === 'host' && needInitialReady);
 
@@ -103,6 +104,7 @@ export function initPongGame(
   }
 
   function onKeyUp(e: KeyboardEvent) {
+    if (freezeInputs) { e.preventDefault(); e.stopPropagation(); return; }
     const allowHostArrowsForReady = (netMode === 'host' && needInitialReady);
 
     if (!allowHostArrowsForReady) {
@@ -222,27 +224,62 @@ export function initPongGame(
 
   // First-serve gate (now via Start button)
   let needInitialReady = true;
+  // Prevent paddle movement during countdown / prestart
+  let freezeInputs = false;
+  const clearInputs = () => {
+    try {
+      // reset all known keys to false
+      for (const k in (keysPressed as any)) (keysPressed as any)[k] = false;
+    } catch {}
+  };
   ball.vx = 0; ball.vy = 0;
   ball.x = canvas.width / 2 - ballSize / 2;
   ball.y = canvas.height / 2 - ballSize / 2;
 
-  // Start button (host/local only)
-  let startBtn: HTMLButtonElement | null = null;
-  if (netMode !== 'guest') {
-    startBtn = document.createElement('button');
-    startBtn.type = 'button';
-    startBtn.id = 'pong-start-btn';
-    startBtn.textContent = 'Start';
-    startBtn.className = 'bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded mb-2';
-    startBtn.addEventListener('click', () => {
-      needInitialReady = false;
-      resetBall(ball, canvas, ballSize, SPEED / 2);
-      if (startBtn) startBtn.style.display = 'none';
-    });
-    // button will appear above the canvas
-    container.appendChild(startBtn);
-  }
+// Start button (host/local only)
+if (netMode !== 'guest') {
+  const startBtn: HTMLButtonElement = document.createElement('button');
+  startBtn.type = 'button';
+  startBtn.id = 'pong-start-btn';
+  startBtn.textContent = 'Start';
+  startBtn.className = 'bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded mb-2';
 
+  startBtn.addEventListener('click', async () => {
+    // Hide immediately and freeze inputs during countdown
+    startBtn.disabled = true;
+    startBtn.style.display = 'none';
+    freezeInputs = true;
+    try { localStorage.setItem('p1Score','0'); localStorage.setItem('p2Score','0'); } catch {}
+    const sleep = (ms: number) => new Promise<void>(res => setTimeout(res, ms));
+    for (let n = 3; n >= 0; n--) {
+      leftScore = n;
+      rightScore = n;
+      updateScoreDisplay();
+
+      // Host echoes countdown to guest
+      if (netMode === 'host' && emitState) {
+        emitState({
+          ball: { x: ball.x, y: ball.y },
+          paddles: { leftY: leftPaddle.y, rightY: rightPaddle.y },
+          scores: { left: leftScore, right: rightScore },
+        });
+      }
+      await sleep(1000);
+    }
+
+    leftScore = 0;
+    rightScore = 0;
+    updateScoreDisplay();
+
+    clearInputs();
+    freezeInputs = false;
+    lastTimestamp = performance.now();
+    needInitialReady = false;
+    resetBall(ball, canvas, ballSize, SPEED / 2);
+  });
+
+  container.appendChild(startBtn);
+}
   let gameEnded = false;
   let rafId = 0;
   let alive = true;
@@ -296,6 +333,7 @@ export function initPongGame(
     // --- Host / Local pre-start (Start button controls the gate)
     if (needInitialReady) {
       // Draw the static scene while waiting
+      lastTimestamp = performance.now();
       draw(ctx, canvas, leftScore, rightScore, topWall, bottomWall, leftPaddle, rightPaddle, ball);
 
       // Host broadcasts snapshot so guest can render the waiting screen

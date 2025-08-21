@@ -186,6 +186,7 @@ export async function renderLocal1v1() {
 
   const container = document.getElementById("pong-root");
   if (container) {
+    try { localStorage.setItem('p1Score','0'); localStorage.setItem('p2Score','0'); } catch {}
     initPongGame(container, () => {
       // 1v1 finished — clear the flag
       try { localStorage.removeItem('game.inProgress'); } catch {}
@@ -198,7 +199,11 @@ export async function renderLocal1v1() {
       localStorage.setItem("p1Score", "0");
       localStorage.setItem("p2Score", "0");
       const container = document.getElementById("pong-root");
-      if (container) initPongGame(container);
+      if (container)
+      { 
+        try { localStorage.setItem('p1Score','0'); localStorage.setItem('p2Score','0'); } catch {}
+        initPongGame(container);
+      }
     };
   }
 
@@ -507,6 +512,7 @@ export async function renderPrivate1v1() {
   // Start engine with online hooks
   if (role === 'left') {
     // HOST: simulate and emit state to guest
+    try { localStorage.setItem('p1Score','0'); localStorage.setItem('p2Score','0'); } catch {}
     initPongGame(container, () => {
       try { localStorage.removeItem('game.inProgress'); } catch {}
     }, {
@@ -568,6 +574,7 @@ export async function renderPrivate1v1() {
     // If the socket opens after we pressed, push current state immediately
     ws.addEventListener('open', send);
 
+    try { localStorage.setItem('p1Score','0'); localStorage.setItem('p2Score','0'); } catch {}
     initPongGame(container, () => {
       try { localStorage.removeItem('game.inProgress'); } catch {}
       window.removeEventListener('keydown', onKD, true);
