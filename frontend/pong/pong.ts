@@ -242,7 +242,7 @@ if (netMode !== 'guest') {
   startBtn.type = 'button';
   startBtn.id = 'pong-start-btn';
   startBtn.textContent = 'Start';
-  startBtn.className = 'bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded mb-2';
+  startBtn.className = 'block mx-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded mb-2';
 
   startBtn.addEventListener('click', async () => {
     // Hide immediately and freeze inputs during countdown
