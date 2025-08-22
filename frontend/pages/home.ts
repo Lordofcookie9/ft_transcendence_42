@@ -62,6 +62,7 @@ export function renderHome() {
         <div class="text-center">
           <h2 class="text-xl font-semibold mb-2">Tournament (up to 8 players)</h2>
           <button onclick="startTournamentSetup()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Local Tournament</button>
+          <button onclick="startOnlineTournamentSetup()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Online Tournament</button>
         </div>
       </div>
     </div>
@@ -494,6 +495,22 @@ export async function renderPrivate1v1() {
     if (role === 'right' && msg.type === 'state' && applyStateFromHost) {
       hidePrestart(); // host is producing snapshots → we're live
       applyStateFromHost(msg.state);
+      try {
+        const scores = (msg.state && (msg.state.scores || {})) || {};
+        const left  = Number(
+          (scores.left ?? msg.state?.leftScore ?? msg.state?.p1Score ?? msg.state?.scoreLeft) ?? 0
+        );
+        const right = Number(
+          (scores.right ?? msg.state?.rightScore ?? msg.state?.p2Score ?? msg.state?.scoreRight) ?? 0
+        );
+        if (Number.isFinite(left) && Number.isFinite(right)) {
+          localStorage.setItem('p1Score', String(left));
+          localStorage.setItem('p2Score', String(right));
+          updateNameplates();
+          window.dispatchEvent(new CustomEvent('pong:score', { detail: { left, right } }));
+        }
+      } catch {}
+ 
       return;
     }
 
@@ -509,23 +526,48 @@ export async function renderPrivate1v1() {
     }
   });
 
-  // Start engine with online hooks
+
+  // Start engine with online hooks — private mode (no global 'pong:gameend')
   if (role === 'left') {
     // HOST: simulate and emit state to guest
     try { localStorage.setItem('p1Score','0'); localStorage.setItem('p2Score','0'); } catch {}
-    initPongGame(container, () => {
-      try { localStorage.removeItem('game.inProgress'); } catch {}
-    }, {
-      control: 'left',
-      netMode: 'host',
-      emitState: (state) => {
-        hidePrestart(); // once we’re producing state, we’re past the prestart
+    initPongGame(
+      container,
+      () => {
+        // Match finished — compute winner, notify guest, report result, show overlay
+        try { localStorage.removeItem('game.inProgress'); } catch {}
+
+        const p1 = parseInt(localStorage.getItem('p1Score') || '0', 10);
+        const p2 = parseInt(localStorage.getItem('p2Score') || '0', 10);
+        const winner =
+          Number.isFinite(p1) && Number.isFinite(p2)
+            ? (p1 > p2 ? hostAlias : guestAlias)
+            : undefined;
+
+        // Tell guest the match is over
+        const detail: any = winner ? { winner } : {};
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'state', state }));
+          try { ws.send(JSON.stringify({ type: 'gameover', detail })); } catch {}
         }
+
+        // Report to backend (for private games)
+        reportResult();
+
+        // Local overlay
+        showEndOverlay(detail);
       },
-      onRemoteInput: (register) => { pushGuestInputToEngine = register; },
-    });
+      {
+        control: 'left',
+        netMode: 'host',
+        emitState: (state) => {
+          hidePrestart(); // once we’re producing state, we’re past the prestart
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'state', state }));
+          }
+        },
+        onRemoteInput: (register) => { pushGuestInputToEngine = register; },
+      }
+    );
 
     try {
       const maybeRight = (localStorage.getItem('p2') || guestAlias || '').trim();
@@ -533,18 +575,6 @@ export async function renderPrivate1v1() {
       if (maybeRight && maybeRight !== '— waiting —') detail.right = maybeRight;
       window.dispatchEvent(new CustomEvent('pong:setNames', { detail }));
     } catch {}
-
-    // When the engine ends on host, announce to the guest AND report result
-    const onGameEnd = (e: any) => {
-      updateNameplates();
-      const detail = e?.detail || {};
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'gameover', detail }));
-      }
-      // REPORT RESULT HERE for the host
-      reportResult();
-    };
-    window.addEventListener('pong:gameend', onGameEnd, { once: true });
 
   } else {
     // GUEST: send input; render host snapshots
@@ -575,26 +605,33 @@ export async function renderPrivate1v1() {
     ws.addEventListener('open', send);
 
     try { localStorage.setItem('p1Score','0'); localStorage.setItem('p2Score','0'); } catch {}
-    initPongGame(container, () => {
-      try { localStorage.removeItem('game.inProgress'); } catch {}
-      window.removeEventListener('keydown', onKD, true);
-      window.removeEventListener('keyup', onKU, true);
-      window.removeEventListener('pong:score', onScore as any);
-      if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
-    }, {
-      control: 'right',
-      netMode: 'guest',
-      applyState: (register) => { applyStateFromHost = register; },
-    });
+    initPongGame(
+      container,
+      () => {
+        // cleanup
+        try { localStorage.removeItem('game.inProgress'); } catch {}
+        window.removeEventListener('keydown', onKD, true);
+        window.removeEventListener('keyup', onKU, true);
+        window.removeEventListener('pong:score', onScore as any);
+        if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
+      },
+      {
+        control: 'right',
+        netMode: 'guest',
+        applyState: (register) => { applyStateFromHost = register; },
+      }
+    );
+
     try {
-    const maybeLeft  = (localStorage.getItem('p1') || hostAlias  || '').trim();
-    const maybeRight = (localStorage.getItem('p2') || guestAlias || '').trim();
-    const detail: any = {};
-    if (maybeLeft) detail.left = maybeLeft;
-    if (maybeRight && maybeRight !== '— waiting —') detail.right = maybeRight;
-    window.dispatchEvent(new CustomEvent('pong:setNames', { detail }));
-  } catch {}
+      const maybeLeft  = (localStorage.getItem('p1') || hostAlias  || '').trim();
+      const maybeRight = (localStorage.getItem('p2') || guestAlias || '').trim();
+      const detail: any = {};
+      if (maybeLeft) detail.left = maybeLeft;
+      if (maybeRight && maybeRight !== '— waiting —') detail.right = maybeRight;
+      window.dispatchEvent(new CustomEvent('pong:setNames', { detail }));
+    } catch {}
   }
+
 
   const replayBtn = document.getElementById('replay-btn') as HTMLButtonElement | null;
   if (replayBtn) {
@@ -608,3 +645,64 @@ export async function renderPrivate1v1() {
   try { (window as any).tournament && ((window as any).tournament.uiActive = false); } catch {}
   updateNameplates();
 }
+
+declare global { interface Window { startOnlineTournamentSetup?: () => void; } }
+
+window.startOnlineTournamentSetup = async function startOnlineTournamentSetup() {
+  // Ask for size (3–8)
+  let numStr = prompt('How many players (3–8)?');
+  if (numStr === null) return;
+  let size = parseInt(numStr, 10);
+  while (!Number.isInteger(size) || size < 3 || size > 8) {
+    numStr = prompt('Please enter a valid number between 3 and 8:');
+    if (numStr === null) return;
+    size = parseInt(numStr, 10);
+  }
+
+  // Alias mode
+  const useUsername = confirm('Use your username as your tournament alias? Click "Cancel" to type a custom alias.');
+  let alias_mode: 'username' | 'custom' = useUsername ? 'username' : 'custom';
+  let alias: string | undefined;
+  if (alias_mode === 'custom') {
+    let a = prompt('Enter your alias (1–40 chars):');
+    if (a === null) return;
+    a = a.trim().slice(0, 40);
+    while (!a) {
+      a = prompt('Alias required (1–40 chars):') || '';
+      if (a === null) return;
+      a = a.trim().slice(0, 40);
+    }
+    alias = a;
+  }
+
+  // Create lobby
+  let lobbyId: number | null = null;
+  try {
+    const res = await fetch('/api/tournament', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ size, alias_mode, alias })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.lobby_id) throw new Error(data?.error || 'Failed to create tournament');
+    lobbyId = data.lobby_id;
+  } catch (err: any) {
+    alert(err?.message || 'Failed to create tournament.');
+    return;
+  }
+
+  // Announce invite in public chat (host shares lobby id)
+  try {
+    const msg = `<(tournament):${lobbyId}>`;
+    await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ message: msg })
+    });
+  } catch {}
+
+  // Go to lobby page
+  (window as any).route?.(`/tournament-online?lobby=${encodeURIComponent(String(lobbyId))}`);
+};

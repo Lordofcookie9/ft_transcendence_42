@@ -12,6 +12,7 @@ const registerChatRoutes = require('./routes/chat');
 const registerGameRoutes = require('./routes/game');
 const registerMetricsRoutes = require('./routes/metrics');
 const registerPresenceRoutes = require('./routes/presence');
+const registerTournamentRoutes = require('./routes/tournament');
 
 async function start() {
   const fastify = Fastify({
@@ -34,6 +35,7 @@ async function start() {
   registerGameRoutes(fastify);
   registerMetricsRoutes(fastify);
   registerPresenceRoutes(fastify);
+  registerTournamentRoutes(fastify);
 
   // Static & uploads
   fastify.register(fastifyStatic, {

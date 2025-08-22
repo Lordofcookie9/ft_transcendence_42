@@ -3,3 +3,5 @@ export { renderHome, renderLocal1v1, renderLocalVsAI, renderPrivate1v1, sendPriv
 export { renderGame } from './game.js';
 export { renderMain } from './main.js';
 export { renderChat, updateChatBox, updateCounter, renderTournament } from './chat.js';
+export { renderOnlineTournamentLobby } from './tournamentOnline.js';
+export { renderOnlineTournamentRoom } from './tournamentRoom.js';

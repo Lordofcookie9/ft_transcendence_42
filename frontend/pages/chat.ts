@@ -1,9 +1,7 @@
 import { getUserInfo, logout } from '../users/userManagement.js';
 import { setContent, escapeHtml, formatDbTime } from '../utility.js';
 import { initPongGame } from "../pong/pong.js";
-
 import { route } from '../router.js';
-
 
 async function getMessages() {
   try {
@@ -32,15 +30,14 @@ export function renderChat() {
 let knownUserSet: Set<string> | null = null;
 
 async function loadKnownUsers() {
-  if (knownUserSet) return; // already loaded
-
+  if (knownUserSet) return;
   try {
     const res = await fetch('/api/users');
     const users = await res.json();
     knownUserSet = new Set(users.map((u: any) => u.display_name));
   } catch (err) {
     console.error("Failed to load known users", err);
-    knownUserSet = new Set(); // fallback
+    knownUserSet = new Set();
   }
 }
 
@@ -48,10 +45,8 @@ export async function updateChatBox() {
   const chatBox = document.getElementById('chatBox') as HTMLDivElement | null;
   if (!chatBox) return;
 
-  // one-time wiring for the alias popover + document-level click interception
   ensureChatAliasMenuSetup();
 
-  // Load messages
   let messages: Array<{ alias: string; message: string; timestamp: string; user_id?: number | null }> = [];
   try {
     messages = await getMessages();
@@ -60,99 +55,123 @@ export async function updateChatBox() {
     return;
   }
 
-  // --- Preload room status for any private 1v1 invites so we can drop full ones ---
+  // Preload private 1v1 invite room statuses
   const inviteRoomIds = Array.from(new Set(
-    messages
-      .map((m) => {
-        const match = /<\(invite\):(\d+)>/.exec(m.message);
-        return match ? Number(match[1]) : null;
-      })
-      .filter((x): x is number => Number.isFinite(x as number))
+    messages.map((m) => {
+      const match = /<\(invite\):(\d+)>/.exec(m.message);
+      return match ? Number(match[1]) : null;
+    }).filter((x): x is number => Number.isFinite(x as number))
   ));
-
   type RoomStatus = { has_guest: boolean; joinable?: boolean };
   const statusMap: Record<number, RoomStatus> = {};
+  await Promise.all(inviteRoomIds.map(async (rid) => {
+    try {
+      const r = await fetch(`/api/game/room/${rid}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      statusMap[rid] = { has_guest: !!d?.has_guest, joinable: d?.joinable };
+    } catch {}
+  }));
 
-  await Promise.all(
-    inviteRoomIds.map(async (rid) => {
-      try {
-        const r = await fetch(`/api/game/room/${rid}`);
-        if (!r.ok) return;
-        const d = await r.json();
-        statusMap[rid] = { has_guest: !!d?.has_guest, joinable: d?.joinable };
-      } catch {
-        // If status fails, leave undefined -> we won't drop the invite
+  // Preload tournament lobby statuses
+  const tournamentIds = Array.from(new Set(
+    messages.map((m) => {
+      const t = /<\(tournament\):(\d+)>/.exec(m.message);
+      return t ? Number(t[1]) : null;
+    }).filter((x): x is number => Number.isFinite(x as number))
+  ));
+  type LobbyStatus = { joinable: boolean; count: number; size: number };
+  const lobbyStatusMap: Record<number, LobbyStatus> = {};
+  await Promise.all(tournamentIds.map(async (tid) => {
+    try {
+      const resp = await fetch(`/api/tournament/${tid}`, { credentials: 'include' });
+      if (!resp.ok) return;
+      const d = await resp.json();
+      if (d?.lobby) {
+        lobbyStatusMap[tid] = {
+          joinable: d.lobby.status === 'waiting' && d.spots_left > 0,
+          count: d.count,
+          size: d.lobby.size,
+        };
       }
-    })
-  );
+    } catch {}
+  }));
 
-  // Build chat HTML (skip invites where the room is already full)
-  const html = messages
-    .map((msg) => {
-      const ts = parseTimestamp(msg.timestamp);
-      const timestamp = ts ? formatDbTime(msg.timestamp) : '';
+  const html = messages.map((msg) => {
+    const ts = parseTimestamp(msg.timestamp);
+    const timestamp = ts ? formatDbTime(msg.timestamp) : '';
+    const aliasMarkup = renderChatAlias(msg);
+    const inviteMatch = /<\(invite\):(\d+)>/.exec(msg.message);
+    const tournMatch = /<\(tournament\):(\d+)>/.exec(msg.message);
 
-      const aliasMarkup = renderChatAlias(msg);
-      const inviteMatch = /<\(invite\):(\d+)>/.exec(msg.message);
-
-      // If it's an invite, drop it when the room is full (has_guest = true)
-      if (inviteMatch) {
-        const roomId = Number(inviteMatch[1]);
-        const st = statusMap[roomId];
-        const isFull = st?.has_guest === true || st?.joinable === false;
-        if (isFull) return ''; // REMOVE the invite from chat
-
-        // Otherwise, render a normal join button
-        const buttonHtml = `<button
+    if (inviteMatch) {
+      const roomId = Number(inviteMatch[1]);
+      const st = statusMap[roomId];
+      const isFull = st?.has_guest === true || st?.joinable === false;
+      if (isFull) return '';
+      const buttonHtml = `<button
             class="px-2 py-0.5 border rounded invite-btn border-green-400 hover:bg-green-700"
             data-invite-btn="1"
             data-room-id="${roomId}"
             onclick="joinGameInvite(${roomId})"
           >Join match</button>`;
-
-        return `
-          <div class="msg" data-ts="${msg.timestamp}">
-            <span class="text-gray-400">[${timestamp}]</span>
-            <span class="alias">${aliasMarkup}</span>:
-            <span class="inline-flex items-center gap-2">
-              <span class="italic text-green-300">invited you to play</span>
-              ${buttonHtml}
-            </span>
-          </div>
-        `;
-      }
-
-      // Regular message
       return `
         <div class="msg" data-ts="${msg.timestamp}">
           <span class="text-gray-400">[${timestamp}]</span>
           <span class="alias">${aliasMarkup}</span>:
-          <span class="body break-words">${escapeHtml(msg.message)}</span>
+          <span class="inline-flex items-center gap-2">
+            <span class="italic text-green-300">invited you to play</span>
+            ${buttonHtml}
+          </span>
         </div>
       `;
-    })
-    .filter(Boolean) // drop removed invites
-    .join('');
+    }
+
+    if (tournMatch) {
+      const lobbyId = Number(tournMatch[1]);
+      const st = lobbyStatusMap[lobbyId];
+      if (!st?.joinable) return '';
+      const buttonHtml = `<button
+          class="px-2 py-0.5 border rounded border-purple-400 hover:bg-purple-700"
+          data-tournament-join="1"
+          onclick="joinTournamentInvite(${lobbyId})"
+        >Join tournament (${st.count}/${st.size})</button>`;
+      return `
+        <div class="msg" data-ts="${msg.timestamp}">
+          <span class="text-gray-400">[${timestamp}]</span>
+          <span class="alias">${aliasMarkup}</span>:
+          <span class="inline-flex items-center gap-2">
+            <span class="italic text-purple-300">invited you to an online tournament</span>
+            ${buttonHtml}
+          </span>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="msg" data-ts="${msg.timestamp}">
+        <span class="text-gray-400">[${timestamp}]</span>
+        <span class="alias">${aliasMarkup}</span>:
+        <span class="body break-words">${escapeHtml(msg.message)}</span>
+      </div>
+    `;
+  }).filter(Boolean).join('');
 
   chatBox.innerHTML = html;
   chatBox.scrollTop = chatBox.scrollHeight;
 
-  // --- small helper for SQLite timestamps like "YYYY-MM-DD HH:MM:SS" ---
   function parseTimestamp(s: string): number | null {
     const d = new Date(s);
     if (!isNaN(d.getTime())) return d.getTime();
-    // fallback: treat as UTC "YYYY-MM-DD HH:MM:SS"
     const iso = s.includes('T') ? s : s.replace(' ', 'T') + 'Z';
     const t = Date.parse(iso);
     return isNaN(t) ? null : t;
   }
 }
 
-
 function renderChatAlias(msg: { user_id?: number | null; alias: string }): string {
   const name = escapeHtml(msg.alias);
   if (msg.user_id) {
-    // No data-link here; the document-level handler will open our menu instead of routing
     return `<a href="/profile/${msg.user_id}"
               class="chat-alias text-blue-400 hover:underline cursor-pointer"
               data-chat-user-id="${msg.user_id}"
@@ -168,8 +187,6 @@ let __chatAliasMenuEl: HTMLDivElement | null = null;
 function ensureChatAliasMenuSetup() {
   if (__chatAliasMenuInit) return;
   __chatAliasMenuInit = true;
-
-  // Create the floating menu once
   __chatAliasMenuEl = document.createElement('div');
   __chatAliasMenuEl.id = 'chat-user-menu';
   __chatAliasMenuEl.className = 'fixed z-[100] bg-gray-800 text-white border border-gray-700 rounded shadow-lg hidden';
@@ -177,57 +194,41 @@ function ensureChatAliasMenuSetup() {
   restoreAliasMenuButtons();
   document.body.appendChild(__chatAliasMenuEl);
 
-  // Intercept clicks anywhere (capture=true) so we beat the SPA router
   document.addEventListener('click', (e: MouseEvent) => {
     const t = e.target as HTMLElement | null;
     if (!t) return;
     const a = t.closest('a.chat-alias') as HTMLAnchorElement | null;
     if (!a) return;
-
-    // Optional: only for links inside the chat box
     if (!a.closest('#chatBox')) return;
-
     e.preventDefault();
     e.stopPropagation();
-
     const uid = a.getAttribute('data-chat-user-id');
     const alias = a.getAttribute('data-chat-alias') || '';
     if (!uid) return;
-
     showChatAliasMenu(Number(uid), alias, e.clientX, e.clientY);
-  }, true); // capture
+  }, true);
 
-  // Menu button clicks
   __chatAliasMenuEl.addEventListener('click', async (e) => {
     const btn = (e.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
     if (!btn) return;
-
     const act = btn.getAttribute('data-act') as 'profile' | 'dm' | 'invite' | 'back' | 'send' | null;
     const uidAttr = __chatAliasMenuEl!.getAttribute('data-user-id');
     const alias = __chatAliasMenuEl!.getAttribute('data-alias') || '';
     if (!act || !uidAttr) return;
-
     const uid = Number(uidAttr);
-
     switch (act) {
       case 'profile': {
         hideChatAliasMenu();
         const href = `/profile/${uid}`;
-        if ((window as any).route) (window as any).route(href);
-        else window.location.href = href;
+        (window as any).route ? (window as any).route(href) : window.location.assign(href);
         break;
       }
-
       case 'dm': {
         hideChatAliasMenu();
-
-        // Prefer the full composer if it exists (same as profile page)
         if (typeof (window as any).startPrivateChat === 'function') {
           (window as any).startPrivateChat(uid, alias);
           break;
         }
-
-        // Fallback: simple prompt using the same sender function
         if (typeof (window as any).sendPrivateMessage === 'function') {
           const text = prompt(`Send a private message to ${alias}:`);
           if (!text || !text.trim()) break;
@@ -239,12 +240,9 @@ function ensureChatAliasMenuSetup() {
             });
           break;
         }
-
-        // Last resort: navigate to profile and let it open the composer
         (window as any).route?.(`/profile/${uid}?compose=1`);
         break;
       }
-
       case 'invite': {
         hideChatAliasMenu();
         try {
@@ -256,14 +254,10 @@ function ensureChatAliasMenuSetup() {
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data?.error || `Failed to invite (${res.status})`);
-
-          // Set names for the Private 1v1 page
           const me = localStorage.getItem('display_name') || 'You';
           localStorage.setItem('p1', me);
           localStorage.removeItem('p1Score');
           localStorage.removeItem('p2Score');
-
-          // Navigate host to the room
           (window as any).route?.(`/private1v1?room=${data.room_id}`);
           alert('Invite sent! The other player can click it in chat to join.');
         } catch (err: any) {
@@ -272,18 +266,11 @@ function ensureChatAliasMenuSetup() {
         }
         break;
       }
-
-      case 'back': {
-        restoreAliasMenuButtons();
-        break;
-      }
-
+      case 'back': { restoreAliasMenuButtons(); break; }
       case 'send': {
-        // Only used if you ever swap the menu to a textarea composer
         const ta = document.getElementById('chat-dm-input') as HTMLTextAreaElement | null;
         const text = ta?.value?.trim() || '';
         if (!text) break;
-
         try {
           if (typeof (window as any).sendPrivateMessage === 'function') {
             await (window as any).sendPrivateMessage(uid, text);
@@ -310,14 +297,12 @@ function ensureChatAliasMenuSetup() {
     }
   });
 
-  // Close on outside click
   document.addEventListener('click', (e) => {
     if (!__chatAliasMenuEl || __chatAliasMenuEl.classList.contains('hidden')) return;
     const t = e.target as HTMLElement;
     if (!t.closest('#chat-user-menu')) hideChatAliasMenu();
   });
 
-  // Close on Escape
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') hideChatAliasMenu();
   });
@@ -331,12 +316,10 @@ function ensureChatAliasMenuSetup() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.error || `Failed to join match (${res.status})`);
-
     if (data.host_alias) localStorage.setItem('p1', data.host_alias);
     if (data.guest_alias) localStorage.setItem('p2', data.guest_alias);
     localStorage.removeItem('p1Score');
     localStorage.removeItem('p2Score');
-
     (window as any).route?.(`/private1v1?room=${data.room_id}`);
   } catch (err: any) {
     console.error(err);
@@ -353,19 +336,15 @@ function restoreAliasMenuButtons() {
   `;
 }
 
-
 function showChatAliasMenu(userId: number, alias: string, x: number, y: number) {
   if (!__chatAliasMenuEl) return;
   __chatAliasMenuEl.setAttribute('data-user-id', String(userId));
   __chatAliasMenuEl.setAttribute('data-alias', alias);
-
-  // position near cursor; keep inside viewport
   const pad = 8, w = 240, h = 120;
   const left = Math.min(window.innerWidth - w - pad, x + pad);
   const top  = Math.min(window.innerHeight - h - pad, y + pad);
   __chatAliasMenuEl.style.left = `${left}px`;
   __chatAliasMenuEl.style.top  = `${top}px`;
-
   restoreAliasMenuButtons();
   __chatAliasMenuEl.classList.remove('hidden');
 }
@@ -373,7 +352,6 @@ function showChatAliasMenu(userId: number, alias: string, x: number, y: number) 
 function hideChatAliasMenu() {
   __chatAliasMenuEl?.classList.add('hidden');
 }
-
 
 export async function updateCounter() {
   const span = document.getElementById("counterDisplay");
@@ -384,28 +362,21 @@ export async function updateCounter() {
 }
 
 export async function renderTournament() {
-  // Mark UI active so pong:gameend listener advances bracket.
   try { (window as any).tournament && ((window as any).tournament.uiActive = true); } catch {}
   try { localStorage.removeItem('game.ai'); } catch {}
-
   const s1 = localStorage.getItem("p1Score") || "0";
   const s2 = localStorage.getItem("p2Score") || "0";
   const leftName  = localStorage.getItem("p1") || "—";
   const rightName = localStorage.getItem("p2") || "—";
-
-  // ensure ui for tournament.
   document.body.style.display = 'block';
   document.body.style.height = 'auto';
   document.body.style.alignItems = '';
   document.body.style.justifyContent = '';
   try { localStorage.setItem('game.inProgress', 'tournament'); } catch {}
-
   setContent(`
     <div class="relative mt-10 min-h-screen text-white">
       <a href="/home" onclick="route('/home')" class="absolute top-0 left-0 ml-4 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm">← Home</a>
       <h1 class="text-3xl font-bold mb-4 text-center">Local Tournament</h1>
-
-      <!-- Sticky player header -->
       <div id="scorebar" class="sticky top-0 z-20 bg-black/70 backdrop-blur supports-[backdrop-filter]:bg-black/50 py-2">
         <div class="flex justify-between items-center max-w-6xl mx-auto px-8 text-xl font-semibold">
           <div id="player1-info" class="text-left w-1/3">${escapeHtml(leftName)}: ${escapeHtml(s1)}</div>
@@ -413,35 +384,58 @@ export async function renderTournament() {
           <div id="player2-info" class="text-right w-1/3">${escapeHtml(rightName)}: ${escapeHtml(s2)}</div>
         </div>
       </div>
-
       <div id="pong-wrap" class="flex justify-center pt-4">
         <div id="pong-root" class="border-2 border-white bg-black"></div>
       </div>
-
       <div class="max-w-6xl mx-auto text-left mt-8">
         <div class="text-sm text-gray-300 mb-2">tournament state:</div>
         <div class="rounded-lg border border-white/10 bg-black/30 p-3">
-          <div id="tournament-state"
-               class="overflow-x-auto overflow-y-auto text-sm leading-6 space-y-4 max-h-[45vh]"
-               style="max-height:45vh;"></div>
+          <div id="tournament-state" class="overflow-x-auto overflow-y-auto text-sm leading-6 space-y-4 max-h-[45vh]" style="max-height:45vh;"></div>
         </div>
       </div>
     </div>
   `);
-
-  // IMPORTANT: nuke any inline styles left by previous dynamic offset code
   document.getElementById('pong-wrap')?.removeAttribute('style');
-
   const container = document.getElementById("pong-root");
   if (container) {
-    // Rely on the global 'pong:gameend' listener gated by uiActive.
     try {
       localStorage.setItem('p1Score','0');
       localStorage.setItem('p2Score','0');
     } catch {}
     initPongGame(container);
   }
-
-  // Render current bracket
   try { (window as any).updateTournamentStateDOM?.(); } catch {}
 }
+
+declare global { interface Window { joinTournamentInvite?: (id:number) => void; } }
+
+window.joinTournamentInvite = async function joinTournamentInvite(id: number) {
+  const useUsername = confirm('Join with your username? Click "Cancel" to type a custom alias.');
+  let alias_mode: 'username' | 'custom' = useUsername ? 'username' : 'custom';
+  let alias: string | undefined;
+  if (alias_mode === 'custom') {
+    let a = prompt('Enter your alias (1–40 chars):');
+    if (a === null) return;
+    a = a.trim().slice(0,40);
+    while (!a) {
+      a = prompt('Alias required (1–40 chars):') || '';
+      if (a === null) return;
+      a = a.trim().slice(0,40);
+    }
+    alias = a;
+  }
+  try {
+    const res = await fetch(`/api/tournament/${id}/join`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ alias_mode, alias })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || 'Failed to join tournament');
+  } catch (err: any) {
+    alert(err?.message || 'Failed to join tournament');
+    return;
+  }
+  (window as any).route?.(`/tournament-online?lobby=${encodeURIComponent(String(id))}`);
+};

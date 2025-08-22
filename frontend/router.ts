@@ -1,3 +1,4 @@
+// frontend/pages/router.ts (snippet)
 import {
   renderLogin,
   renderRegister,
@@ -14,6 +15,8 @@ import {
   renderLocalVsAI,
   renderPrivate1v1,
   renderTournament,
+  renderOnlineTournamentLobby,
+  renderOnlineTournamentRoom,
   renderGame,
   renderChat,
   renderMain,
@@ -21,7 +24,6 @@ import {
 
 import { startPresenceHeartbeat } from './utility.js';
 
-// Start presence heartbeat once on app load if a session already exists
 try {
   if (localStorage.getItem('userId')) startPresenceHeartbeat();
 } catch {}
@@ -31,7 +33,6 @@ function renderNotFound() {
   if (el) el.innerHTML = `<div class="text-white p-8">Page not found</div>`;
 }
 
-// Route table
 const routes: Record<string, () => Promise<void> | void> = {
   '/': renderEntryPage,
   '/home': renderHome,
@@ -46,7 +47,10 @@ const routes: Record<string, () => Promise<void> | void> = {
   '/game': renderGame,
   '/chat': renderChat,
   '/main': renderMain,
-  '/oauth-success':renderOauthSuccess,
+  '/oauth-success': renderOauthSuccess,
+  '/tournament-online-lobby': renderOnlineTournamentLobby, // legacy alias
+  '/tournament-online': renderOnlineTournamentLobby,
+  '/tournament-room': renderOnlineTournamentRoom,
 };
 
 export function route(path: string) {
@@ -56,7 +60,6 @@ export function route(path: string) {
 
 export async function handleLocation() {
   const path = window.location.pathname;
-  // dynamic profile route /profile/:id
   if (path.startsWith('/profile/')) {
     const id = parseInt(path.split('/')[2]);
     await renderUserProfile(id);
@@ -66,7 +69,6 @@ export async function handleLocation() {
     renderOauthSuccess();
     return;
   }
-  
   const page = routes[path] || renderNotFound;
   await page();
 }

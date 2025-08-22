@@ -149,6 +149,52 @@ async function initDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_game_rooms_status ON game_rooms(status);
     `);
+    // --- Online tournament lobbies ---
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS tournament_lobbies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        host_id INTEGER NOT NULL,
+        size INTEGER NOT NULL CHECK (size BETWEEN 3 AND 8),
+        status TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting', 'started', 'cancelled', 'finished')),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        started_at DATETIME,
+        FOREIGN KEY (host_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS tournament_participants (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lobby_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        alias TEXT NOT NULL,
+        joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (lobby_id, user_id),
+        FOREIGN KEY (lobby_id) REFERENCES tournament_lobbies(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+    // --- Online tournament bracket & matches ---
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS tournament_matches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lobby_id INTEGER NOT NULL,
+        round INTEGER NOT NULL,             -- 0-based
+        match_index INTEGER NOT NULL,       -- 0-based within the round
+        p1_user_id INTEGER,
+        p1_alias TEXT,
+        p2_user_id INTEGER,
+        p2_alias TEXT,
+        room_id INTEGER,                    -- links to game_rooms.id once created
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','finished')),
+        winner_user_id INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (lobby_id) REFERENCES tournament_lobbies(id) ON DELETE CASCADE,
+        FOREIGN KEY (p1_user_id) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (p2_user_id) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (room_id) REFERENCES game_rooms(id) ON DELETE SET NULL
+      )
+    `);
 await db.exec('COMMIT');
   } catch (err) {
     await db.exec('ROLLBACK');
