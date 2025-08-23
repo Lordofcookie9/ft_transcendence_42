@@ -145,7 +145,7 @@ export async function renderOnlineTournamentLobby() {
   }
 
   setContent(`
-    <div class="p-6 space-y-6">
+    <div id="tourn-root" class="p-6 pt-16 space-y-6">
       <a href="/home" onclick="route('/home')" class="inline-block bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded text-white">← Home</a>
       <h1 class="text-3xl font-bold">Online Tournament Lobby</h1>
       <div id="winner-banner"></div>

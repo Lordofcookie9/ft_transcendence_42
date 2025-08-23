@@ -35,8 +35,13 @@ export async function renderOnlineTournamentRoom() {
 
   // Base UI with a single, controllable Start button for HOST
   setContent(`
-    <div class="relative text-center mt-10">
-      <a href="/tournament-online?lobby=${lobbyId}" onclick="route('/tournament-online?lobby=${lobbyId}')" class="absolute top-0 left-0 ml-4 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm">← Back to lobby</a>
+    <a
+      href="/tournament-online?lobby=${lobbyId}"
+      onclick="route('/tournament-online?lobby=${lobbyId}')"
+      class="fixed top-4 left-4 z-[60] bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm"
+    >← Back to lobby</a>
+
+    <div class="text-center mt-10">
       <h1 class="text-3xl font-bold mb-2">Tournament Match</h1>
       <div class="text-gray-400 text-sm mb-1">
         Lobby #${escapeHtml(String(lobbyId))} — Match #${escapeHtml(String(matchId))}
