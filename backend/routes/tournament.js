@@ -1,7 +1,10 @@
+
 // backend/routes/tournament.js
-// Online Tournament routes with robust BYE propagation and safe winner evaluation.
-// NOTE: We do NOT assume a 'finished_at' column in the 'matches' table.
-// We only order by 'id DESC' when reading scores.
+// Online Tournament routes with round-by-round random pairings and at most one BYE per round.
+// - Only the current round is scheduled; when a round fully finishes, the next round is created randomly.
+// - If the number of advancing players is odd, one random player receives a BYE (recorded as a finished match).
+// - Final round auto-finishes the lobby when one player remains.
+// - Compatible with game_rooms/matches schema for resolving winners from played rooms.
 
 module.exports = function registerTournamentRoutes(fastify) {
   // Ensure tables exist (idempotent)
@@ -55,17 +58,13 @@ module.exports = function registerTournamentRoutes(fastify) {
     }
   })();
 
-  function buildBracket(participants) {
-    const N = participants.length;
-    const rounds = Math.ceil(Math.log2(N));
-    const size = 1 << rounds;
-    const seeds = participants.slice();
-    while (seeds.length < size) seeds.push(null); // pad BYEs
-    const round0 = [];
-    for (let i = 0; i < size; i += 2) {
-      round0.push({ p1: seeds[i], p2: seeds[i + 1] });
+  // Utility: Fisher–Yates shuffle (in-place)
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
     }
-    return { rounds, size, round0 };
+    return arr;
   }
 
   async function getAliasFor(fastify, lobbyId, userId) {
@@ -83,25 +82,29 @@ module.exports = function registerTournamentRoutes(fastify) {
       [lobbyId]
     );
     if (!lobby) return null;
+
     const participants = await fastify.db.all(
       `SELECT user_id, alias FROM tournament_participants WHERE lobby_id = ? ORDER BY joined_at ASC`,
       [lobbyId]
     );
+
     const matches = await fastify.db.all(
       `SELECT * FROM tournament_matches WHERE lobby_id = ? ORDER BY round ASC, match_index ASC, id ASC`,
       [lobbyId]
     );
-    const totalRounds = Math.max(1, Math.ceil(Math.log2(lobby.size || (participants ? participants.length : 1) || 1)));
-    const rounds = Array.from({ length: totalRounds }, () => []);
+
+    let maxRound = -1;
+    for (const m of matches) { if (m.round > maxRound) maxRound = m.round; }
+    const rounds = Array.from({ length: Math.max(0, maxRound + 1) }, () => []);
     for (const m of matches) {
-      if (m.round < rounds.length) rounds[m.round].push(m);
+      if (m.round >= 0 && m.round < rounds.length) rounds[m.round].push(m);
     }
     return { lobby, participants, rounds };
   }
 
-  // Winner computation from the 'matches' table (latest row wins) without 'finished_at'
+  // Determine winner_user_id from DB if not given (uses latest record of matches table for the room)
   async function computeWinnerUserId(fastify, m) {
-    // BYEs:
+    // BYE cases
     if (m.p1_user_id && !m.p2_user_id) return m.p1_user_id;
     if (!m.p1_user_id && m.p2_user_id) return m.p2_user_id;
 
@@ -112,12 +115,11 @@ module.exports = function registerTournamentRoutes(fastify) {
     );
     if (!room) return null;
 
-    // Read the latest match row (we assume higher id = later)
     const rec = await fastify.db.get(
       `SELECT host_score, guest_score
          FROM matches
         WHERE room_id = ?
-        ORDER BY id DESC
+        ORDER BY finished_at DESC, id DESC
         LIMIT 1`,
       [m.room_id]
     );
@@ -128,7 +130,6 @@ module.exports = function registerTournamentRoutes(fastify) {
     return hostScore > guestScore ? room.host_id : room.guest_id;
   }
 
-  // Map (host_score, guest_score) to winner_user_id using game_rooms
   async function winnerFromScores(fastify, m, hostScore, guestScore) {
     if (!m || !m.room_id) return null;
     if (!Number.isFinite(hostScore) || !Number.isFinite(guestScore) || hostScore === guestScore) return null;
@@ -137,7 +138,6 @@ module.exports = function registerTournamentRoutes(fastify) {
     return (hostScore > guestScore) ? room.host_id : room.guest_id;
   }
 
-  // Map 'host' | 'guest' to a concrete user id using game_rooms
   async function winnerFromSide(fastify, m, side) {
     if (!m || !m.room_id) return null;
     const room = await fastify.db.get(`SELECT id, host_id, guest_id FROM game_rooms WHERE id = ?`, [m.room_id]);
@@ -147,94 +147,142 @@ module.exports = function registerTournamentRoutes(fastify) {
     return null;
   }
 
-  // Propagate all finished winners through subsequent BYEs until stable
-  async function propagateAll(fastify, lobbyId) {
-    const lobby = await fastify.db.get(`SELECT id, size FROM tournament_lobbies WHERE id = ?`, [lobbyId]);
-    if (!lobby) return;
-    const totalRounds = Math.max(1, Math.ceil(Math.log2(lobby.size || 1)));
+  // Seed round 0 randomly (with at most one BYE if odd)
+  async function seedRoundZero(fastify, lobbyId) {
+    const parts = await fastify.db.all(
+      `SELECT user_id, alias FROM tournament_participants WHERE lobby_id = ? ORDER BY joined_at ASC`,
+      [lobbyId]
+    );
+    const players = parts.map(p => ({ user_id: p.user_id, alias: p.alias }));
+    shuffle(players);
 
-    let changed = true;
-    let guards = 0;
-    while (changed && guards++ < 10) {
-      changed = false;
-      const matches = await fastify.db.all(
-        `SELECT * FROM tournament_matches WHERE lobby_id = ? ORDER BY round ASC, match_index ASC, id ASC`,
-        [lobbyId]
+    let idx = 0;
+    let matchIdx = 0;
+
+    // Pair as many as possible
+    while (idx + 1 < players.length) {
+      const p1 = players[idx++];
+      const p2 = players[idx++];
+      await fastify.db.run(
+        `INSERT INTO tournament_matches
+          (lobby_id, round, match_index, p1_user_id, p1_alias, p2_user_id, p2_alias, status)
+         VALUES (?, 0, ?, ?, ?, ?, ?, 'pending')`,
+        [lobbyId, matchIdx++, p1.user_id, p1.alias, p2.user_id, p2.alias]
       );
-      for (const m of matches) {
-        let winner = m.winner_user_id;
-        if (!winner) {
-          if ((m.p1_user_id && !m.p2_user_id) || (!m.p1_user_id && m.p2_user_id)) {
-            winner = m.p1_user_id || m.p2_user_id;
-          }
-        }
-        if (!winner) continue;
+    }
 
-        const isFinal = m.round >= (totalRounds - 1);
-        if (isFinal) continue;
-
-        const nextRound = m.round + 1;
-        const nextIndex = Math.floor(m.match_index / 2);
-        const fillLeft  = (m.match_index % 2) === 0;
-        const winnerAlias = await getAliasFor(fastify, lobbyId, winner);
-
-        // fetch fresh each loop
-        const next = await fastify.db.get(
-          `SELECT * FROM tournament_matches WHERE lobby_id = ? AND round = ? AND match_index = ? LIMIT 1`,
-          [lobbyId, nextRound, nextIndex]
-        );
-
-        if (!next) {
-          await fastify.db.run(
-            `INSERT INTO tournament_matches (lobby_id, round, match_index, p1_user_id, p1_alias, p2_user_id, p2_alias, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
-            [lobbyId, nextRound, nextIndex,
-             fillLeft ? winner : null, fillLeft ? winnerAlias : null,
-             fillLeft ? null   : winner, fillLeft ? null         : winnerAlias]
-          );
-          changed = true;
-          continue;
-        }
-
-        if (fillLeft && !next.p1_user_id) {
-          await fastify.db.run(
-            `UPDATE tournament_matches SET p1_user_id=?, p1_alias=? WHERE id = ?`,
-            [winner, winnerAlias, next.id]
-          );
-          changed = true;
-        } else if (!fillLeft && !next.p2_user_id) {
-          await fastify.db.run(
-            `UPDATE tournament_matches SET p2_user_id=?, p2_alias=? WHERE id = ?`,
-            [winner, winnerAlias, next.id]
-          );
-          changed = true;
-        }
-      }
+    // If one remains → BYE (as a finished match in round 0)
+    if (idx < players.length) {
+      const bye = players[idx];
+      await fastify.db.run(
+        `INSERT INTO tournament_matches
+          (lobby_id, round, match_index, p1_user_id, p1_alias, p2_user_id, p2_alias, status, winner_user_id)
+         VALUES (?, 0, ?, ?, ?, NULL, NULL, 'finished', ?)`,
+        [lobbyId, matchIdx, bye.user_id, bye.alias, bye.user_id]
+      );
     }
   }
+
+  // When an entire round finishes (and the next round does not yet exist), create the next round randomly,
+  // with at most one BYE.
+  async function tryScheduleNextRound(fastify, lobbyId) {
+    const allMatches = await fastify.db.all(
+      `SELECT * FROM tournament_matches WHERE lobby_id = ? ORDER BY round ASC, match_index ASC`,
+      [lobbyId]
+    );
+    if (allMatches.length === 0) return;
+
+    let maxRound = -1;
+    for (const m of allMatches) if (m.round > maxRound) maxRound = m.round;
+    if (maxRound < 0) return;
+
+    const inRound = allMatches.filter(m => m.round === maxRound);
+    if (inRound.length === 0) return;
+
+    // If any in the round are not finished, we cannot schedule next
+    if (inRound.some(m => m.status !== 'finished' || !m.winner_user_id)) return;
+
+    // If next round already exists, nothing to do
+    const hasNext = allMatches.some(m => m.round === maxRound + 1);
+    if (hasNext) return;
+
+    // Collect winners of this round
+    const adv = [];
+    for (const m of inRound) {
+      const wid = m.winner_user_id;
+      if (!wid) continue;
+      let alias = null;
+      if (m.p1_user_id === wid) alias = m.p1_alias;
+      else if (m.p2_user_id === wid) alias = m.p2_alias;
+      if (!alias) alias = await getAliasFor(fastify, lobbyId, wid);
+      adv.push({ user_id: wid, alias: alias || null });
+    }
+
+    // If only one remains -> finish tournament
+    if (adv.length <= 1) {
+      await fastify.db.run(`UPDATE tournament_lobbies SET status='finished' WHERE id = ?`, [lobbyId]);
+      return;
+    }
+
+    // Randomize next round entrants
+    shuffle(adv);
+
+    let matchIndex = 0;
+
+    // If odd number of entrants: pick one random BYE (already shuffled -> pop last is random)
+    if (adv.length % 2 === 1) {
+      const bye = adv.pop();
+      if (bye) {
+        await fastify.db.run(
+          `INSERT INTO tournament_matches
+            (lobby_id, round, match_index, p1_user_id, p1_alias, p2_user_id, p2_alias, status, winner_user_id)
+           VALUES (?, ?, ?, ?, ?, NULL, NULL, 'finished', ?)`,
+          [lobbyId, maxRound + 1, matchIndex++, bye.user_id, bye.alias, bye.user_id]
+        );
+      }
+    }
+
+    // Pair the rest
+    for (let i = 0; i + 1 < adv.length; i += 2) {
+      const a = adv[i], b = adv[i + 1];
+      await fastify.db.run(
+        `INSERT INTO tournament_matches
+          (lobby_id, round, match_index, p1_user_id, p1_alias, p2_user_id, p2_alias, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+        [lobbyId, maxRound + 1, matchIndex++, a.user_id, a.alias, b.user_id, b.alias]
+      );
+    }
+  }
+
+  // --- Routes ---
 
   // Create lobby and auto-join host
   fastify.post('/api/tournament', { preValidation: [fastify.authenticate] }, async (req, reply) => {
     try {
       const body = req.body || {};
-      const size = body.size;
-      const alias_mode = body.alias_mode;
+      const size = Number(body.size);
+      const aliasMode = body.alias_mode;
       const alias = body.alias;
       const me = req.user.id;
-      const n = Number(size);
-      if (!Number.isInteger(n) || n < 3 || n > 8) return reply.code(400).send({ error: 'size_must_be_3_to_8' });
+      if (!Number.isInteger(size) || size < 3 || size > 8) {
+        return reply.code(400).send({ error: 'size_must_be_3_to_8' });
+      }
+
       let myAlias = '';
-      if (alias_mode === 'username') {
+      if (aliasMode === 'username') {
         const row = await fastify.db.get(`SELECT display_name FROM users WHERE id = ?`, [me]);
         myAlias = (row && row.display_name) ? row.display_name : 'Player';
-      } else if (alias_mode === 'custom') {
+      } else if (aliasMode === 'custom') {
         if (!alias || !String(alias).trim()) return reply.code(400).send({ error: 'alias_required' });
         myAlias = String(alias).trim().slice(0, 40);
-      } else return reply.code(400).send({ error: 'alias_mode_invalid' });
+      } else {
+        return reply.code(400).send({ error: 'alias_mode_invalid' });
+      }
+
       await fastify.db.run('BEGIN');
       const insLobby = await fastify.db.run(
         `INSERT INTO tournament_lobbies (host_id, size, status) VALUES (?, ?, 'waiting')`,
-        [me, n]
+        [me, size]
       );
       const lobbyId = insLobby.lastID;
       await fastify.db.run(
@@ -250,16 +298,18 @@ module.exports = function registerTournamentRoutes(fastify) {
     }
   });
 
-  // Lobby snapshot (+ bracket when started)
+  // Lobby snapshot
   fastify.get('/api/tournament/:id', async (req, reply) => {
     try {
       const lobbyId = Number(req.params.id);
       if (!lobbyId) return reply.code(400).send({ error: 'invalid_lobby_id' });
+
       const lobby = await fastify.db.get(
         `SELECT id, host_id, size, status, created_at, started_at FROM tournament_lobbies WHERE id = ?`,
         [lobbyId]
       );
       if (!lobby) return reply.code(404).send({ error: 'lobby_not_found' });
+
       const parts = await fastify.db.all(
         `SELECT tp.user_id, tp.alias, u.display_name
            FROM tournament_participants tp
@@ -272,10 +322,16 @@ module.exports = function registerTournamentRoutes(fastify) {
       const me = req && req.user ? req.user.id : null;
       const is_host = me ? Number(lobby.host_id) === Number(me) : false;
       const can_start = lobby.status === 'waiting' && count === lobby.size && is_host;
+
+      // Only build state if not waiting
       const state = lobby.status !== 'waiting' ? await getTournamentState(fastify, lobbyId) : null;
+
       return reply.send({
         ok: true,
-        lobby: { id: lobby.id, host_id: lobby.host_id, size: lobby.size, status: lobby.status, created_at: lobby.created_at, started_at: lobby.started_at },
+        lobby: {
+          id: lobby.id, host_id: lobby.host_id, size: lobby.size,
+          status: lobby.status, created_at: lobby.created_at, started_at: lobby.started_at
+        },
         participants: parts,
         count,
         spots_left: Math.max(0, lobby.size - count),
@@ -293,33 +349,38 @@ module.exports = function registerTournamentRoutes(fastify) {
     try {
       const lobbyId = Number(req.params.id);
       const body = req.body || {};
-      const alias_mode = body.alias_mode;
+      const aliasMode = body.alias_mode;
       const alias = body.alias;
       const me = req.user.id;
+
       const lobby = await fastify.db.get(
         `SELECT id, host_id, size, status FROM tournament_lobbies WHERE id = ?`,
         [lobbyId]
       );
       if (!lobby) return reply.code(404).send({ error: 'lobby_not_found' });
       if (lobby.status !== 'waiting') return reply.code(400).send({ error: 'lobby_not_joinable' });
+
       const currentRow = await fastify.db.get(
         `SELECT COUNT(*) AS c FROM tournament_participants WHERE lobby_id = ?`, [lobbyId]
       );
       const current = currentRow && currentRow.c ? currentRow.c : 0;
       if (current >= lobby.size) return reply.code(400).send({ error: 'lobby_full' });
+
       const exists = await fastify.db.get(
         `SELECT id FROM tournament_participants WHERE lobby_id = ? AND user_id = ?`,
         [lobbyId, me]
       );
       if (exists) return reply.send({ ok: true, already_in: true });
+
       let myAlias = '';
-      if (alias_mode === 'username') {
+      if (aliasMode === 'username') {
         const row = await fastify.db.get(`SELECT display_name FROM users WHERE id = ?`, [me]);
         myAlias = (row && row.display_name) ? row.display_name : 'Player';
-      } else if (alias_mode === 'custom') {
+      } else if (aliasMode === 'custom') {
         if (!alias || !String(alias).trim()) return reply.code(400).send({ error: 'alias_required' });
         myAlias = String(alias).trim().slice(0, 40);
       } else return reply.code(400).send({ error: 'alias_mode_invalid' });
+
       await fastify.db.run(
         `INSERT INTO tournament_participants (lobby_id, user_id, alias) VALUES (?, ?, ?)`,
         [lobbyId, me, myAlias]
@@ -331,7 +392,7 @@ module.exports = function registerTournamentRoutes(fastify) {
     }
   });
 
-  // Start tournament (seed round 0) and propagate BYEs forward immediately
+  // Start tournament: create ONLY round 0 randomly, with at most one BYE
   fastify.post('/api/tournament/:id/start', { preValidation: [fastify.authenticate] }, async (req, reply) => {
     try {
       const lobbyId = Number(req.params.id);
@@ -343,38 +404,24 @@ module.exports = function registerTournamentRoutes(fastify) {
       if (!lobby) return reply.code(404).send({ error: 'lobby_not_found' });
       if (Number(lobby.host_id) !== Number(me)) return reply.code(403).send({ error: 'not_host' });
       if (lobby.status !== 'waiting') return reply.code(400).send({ error: 'already_started' });
+
       const parts = await fastify.db.all(
         `SELECT tp.user_id, tp.alias, u.display_name
            FROM tournament_participants tp
            JOIN users u ON u.id = tp.user_id
           WHERE tp.lobby_id = ?
-          ORDER BY RANDOM()`,
+          ORDER BY tp.joined_at ASC`,
         [lobbyId]
       );
       if (parts.length !== lobby.size) return reply.code(400).send({ error: 'not_full' });
-      const { round0 } = buildBracket(parts);
+
       await fastify.db.run('BEGIN');
       await fastify.db.run(
         `UPDATE tournament_lobbies SET status='started', started_at=CURRENT_TIMESTAMP WHERE id = ?`,
         [lobbyId]
       );
-      for (let i = 0; i < round0.length; i++) {
-        const p1 = round0[i].p1, p2 = round0[i].p2;
-        const p1_id = p1 ? p1.user_id : null, p1_alias = p1 ? p1.alias : null;
-        const p2_id = p2 ? p2.user_id : null, p2_alias = p2 ? p2.alias : null;
-        let status = 'pending', winner_user_id = null;
-        if (p1 && !p2) { status = 'finished'; winner_user_id = p1_id; }
-        if (!p1 && p2) { status = 'finished'; winner_user_id = p2_id; }
-        await fastify.db.run(
-          `INSERT INTO tournament_matches (lobby_id, round, match_index, p1_user_id, p1_alias, p2_user_id, p2_alias, status, winner_user_id)
-           VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)`,
-          [lobbyId, i, p1_id, p1_alias, p2_id, p2_alias, status, winner_user_id]
-        );
-      }
+      await seedRoundZero(fastify, lobbyId);
       await fastify.db.run('COMMIT');
-
-      // Immediately propagate BYE winners so the next match (final in 3-player) is ready
-      await propagateAll(fastify, lobbyId);
 
       const state = await getTournamentState(fastify, lobbyId);
       return reply.send({ ok: true, state });
@@ -420,7 +467,7 @@ module.exports = function registerTournamentRoutes(fastify) {
     }
   });
 
-  // Mark match complete, propagate winner to next round, and finish lobby if final
+  // Mark match complete; compute winner; when the entire round finishes, build the next round randomly.
   fastify.post('/api/tournament/:id/match/:mid/complete', async (req, reply) => {
     try {
       const lobbyId = Number(req.params.id);
@@ -437,66 +484,57 @@ module.exports = function registerTournamentRoutes(fastify) {
         return reply.send({ ok: true, state: await getTournamentState(fastify, lobbyId) });
       }
 
-      const body = req.body || {};
-      let winnerUserId = m.winner_user_id || null;
+      const reqBody = req.body || {};
+      let winnerUserId = m.winner_user_id;
 
-      // 1) Winner slot (p1/p2) has top priority because it maps directly to the bracket
-      if (!winnerUserId && (body.winner_slot === 'p1' || body.winner_slot === 'p2')) {
-        if (body.winner_slot === 'p1' && m.p1_user_id) winnerUserId = m.p1_user_id;
-        if (body.winner_slot === 'p2' && m.p2_user_id) winnerUserId = m.p2_user_id;
+      // Winner slot (p1/p2) explicit
+      if (!winnerUserId && (reqBody.winner_slot === 'p1' || reqBody.winner_slot === 'p2')) {
+        if (reqBody.winner_slot === 'p1' && m.p1_user_id) winnerUserId = m.p1_user_id;
+        if (reqBody.winner_slot === 'p2' && m.p2_user_id) winnerUserId = m.p2_user_id;
       }
 
-      // 2) Winner side (host/guest) if provided
-      if (!winnerUserId && (body.winner_side === 'host' || body.winner_side === 'guest')) {
-        const viaSide = await winnerFromSide(fastify, m, body.winner_side);
+      // Winner side (host/guest) mapping through game_rooms
+      if (!winnerUserId && (reqBody.winner_side === 'host' || reqBody.winner_side === 'guest')) {
+        const viaSide = await winnerFromSide(fastify, m, reqBody.winner_side);
         if (viaSide) winnerUserId = viaSide;
       }
 
-      // 3) Scores from p1/p2 or host/guest
+      // Scores p1/p2
       if (!winnerUserId) {
-        const p1s = Number(body.p1_score);
-        const p2s = Number(body.p2_score);
+        const p1s = Number(reqBody.p1_score);
+        const p2s = Number(reqBody.p2_score);
         if (Number.isFinite(p1s) && Number.isFinite(p2s) && p1s !== p2s) {
           winnerUserId = p1s > p2s ? m.p1_user_id : m.p2_user_id;
         }
       }
+      // Scores host/guest → map via room
       if (!winnerUserId) {
-        const hs = Number(body.host_score);
-        const gs = Number(body.guest_score);
+        const hs = Number(reqBody.host_score);
+        const gs = Number(reqBody.guest_score);
         if (Number.isFinite(hs) && Number.isFinite(gs) && hs !== gs) {
           const viaScores = await winnerFromScores(fastify, m, hs, gs);
           if (viaScores) winnerUserId = viaScores;
         }
       }
 
-      // 4) Fallback to DB-computed winner (latest 'matches' row by id)
+      // Fallback to DB-computed winner
       if (!winnerUserId) {
         winnerUserId = await computeWinnerUserId(fastify, m);
       }
 
       await fastify.db.run('BEGIN');
-
       if (winnerUserId && !(m.status === 'finished' && m.winner_user_id)) {
         await fastify.db.run(
           `UPDATE tournament_matches SET status='finished', winner_user_id=? WHERE id = ?`,
           [winnerUserId, matchId]
         );
       }
-
       await fastify.db.run('COMMIT');
 
-      // Propagate winner (and any BYE cascades) forward
-      await propagateAll(fastify, lobbyId);
+      // If all matches in this round are done and next round isn't created, schedule it
+      await tryScheduleNextRound(fastify, lobbyId);
 
-      // If the last round now has a winner, mark the lobby finished
-      const state = await getTournamentState(fastify, lobbyId);
-      const totalRounds = state ? state.rounds.length : 1;
-      const finals = state ? state.rounds[totalRounds - 1] : [];
-      const final = finals && finals[0];
-      if (final && final.status === 'finished' && final.winner_user_id) {
-        await fastify.db.run(`UPDATE tournament_lobbies SET status='finished' WHERE id = ?`, [lobbyId]);
-      }
-
+      // If the last (and only) advancing player remains, lobby will be marked finished above
       return reply.send({ ok: true, state: await getTournamentState(fastify, lobbyId) });
     } catch (err) {
       try { await fastify.db.run('ROLLBACK'); } catch {}
