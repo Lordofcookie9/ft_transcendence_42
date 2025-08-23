@@ -62,7 +62,7 @@ function renderBracket(snap?: LobbySnapshot | null) {
     <div class="grid md:grid-cols-${Math.max(1, rounds.length)} gap-4">
       ${rounds.map((round: TM[], rIdx: number) => `
         <div class="space-y-3">
-          <div class="text-sm uppercase tracking-wide text-gray-400">${rIdx === rounds.length-1 ? 'Final' : `Round ${rIdx+1}`}</div>
+          <div class="text-sm uppercase tracking-wide text-gray-400">Round ${rIdx + 1}</div>
           ${round.map((m: TM) => {
             const p1 = labelOf(m.p1_user_id, m.p1_alias, m.p2_alias, true);
             const p2 = labelOf(m.p2_user_id, m.p1_alias, m.p2_alias, false);
