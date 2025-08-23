@@ -348,7 +348,7 @@ module.exports = function registerTournamentRoutes(fastify) {
            FROM tournament_participants tp
            JOIN users u ON u.id = tp.user_id
           WHERE tp.lobby_id = ?
-          ORDER BY tp.joined_at ASC`,
+          ORDER BY RANDOM()`,
         [lobbyId]
       );
       if (parts.length !== lobby.size) return reply.code(400).send({ error: 'not_full' });
