@@ -804,29 +804,31 @@ export async function renderUserProfile(userId: number) {
     let goProfile = "";
 
     // ---- Match History (last 50 private 1v1) ----
-    let historyBlock = `
-      <h2 class="text-xl font-semibold mb-2">Match History</h2>
-      <ul class="space-y-2">
-        ${
-          Array.isArray(history) && history.length
-            ? history.map((m: any) => {
-                const score =
-                  (m?.your_score ?? null) !== null && (m?.opponent_score ?? null) !== null
-                    ? `${m.your_score} - ${m.opponent_score}`
-                    : '—';
-                const when = m?.date ? formatDbDateTime(m.date) : '';
-                const opp  = m?.opponent_name || `User #${m?.opponent_id ?? '?'}`;
-                return `
-                  <li class="bg-gray-700 px-4 py-2 rounded flex justify-between">
-                    <span>${opp}</span>
-                    <span>${score}</span>
-                    <span class="text-gray-300">${when}</span>
-                  </li>`;
-              }).join('')
-            : `<li class="bg-gray-700 px-4 py-2 rounded text-center text-gray-300">No matches yet.</li>`
-        }
-      </ul>
-    `;
+	let historyBlock = `
+	<h2 class="text-xl font-semibold mb-2">Match History</h2>
+	<div class="max-h-64 md:max-h-80 overflow-y-auto pr-2">
+		<ul class="space-y-2">
+		${
+			Array.isArray(history) && history.length
+			? history.map((m: any) => {
+				const score =
+					(m?.your_score ?? null) !== null && (m?.opponent_score ?? null) !== null
+					? `${m.your_score} - ${m.opponent_score}`
+					: '—';
+				const when = m?.date ? formatDbDateTime(m.date) : '';
+				const opp  = m?.opponent_name || `User #${m?.opponent_id ?? '?'}`;
+				return `
+					<li class="bg-gray-700 px-4 py-2 rounded flex justify-between">
+					<span>${opp}</span>
+					<span>${score}</span>
+					<span class="text-gray-300">${when}</span>
+					</li>`;
+				}).join('')
+			: `<li class="bg-gray-700 px-4 py-2 rounded text-center text-gray-300">No matches yet.</li>`
+		}
+		</ul>
+	</div>
+	`;
 
     // ---- Friend buttons / self link ----
     if (currUser.type === "loggedInUser") {

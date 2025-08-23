@@ -17,12 +17,6 @@ type MatchLite = {
   winner_user_id: number | null;
 };
 
-declare global {
-  interface Window {
-    renderOnlineTournamentRoom?: () => void;
-  }
-}
-
 function qNum(param: string): number | null {
   const v = new URLSearchParams(location.search).get(param);
   if (!v) return null;
@@ -30,27 +24,27 @@ function qNum(param: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-// Guard to prevent duplicate /complete posts from this tab
-let __postedComplete: boolean = false;
-
 export async function renderOnlineTournamentRoom() {
-  // read params
   const lobbyId = qNum('lobby');
   const matchId = qNum('mid');
   const roomId  = qNum('room');
-
   if (!lobbyId || !matchId || !roomId) {
     setContent(`<div class="p-6 text-red-400">Missing lobby/match/room in URL</div>`);
     return;
   }
 
-  // base UI
+  // Base UI with a single, controllable Start button for HOST
   setContent(`
     <div class="relative text-center mt-10">
       <a href="/tournament-online?lobby=${lobbyId}" onclick="route('/tournament-online?lobby=${lobbyId}')" class="absolute top-0 left-0 ml-4 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm">← Back to lobby</a>
       <h1 class="text-3xl font-bold mb-2">Tournament Match</h1>
       <div class="text-gray-400 text-sm mb-1">
         Lobby #${escapeHtml(String(lobbyId))} — Match #${escapeHtml(String(matchId))}
+      </div>
+
+      <div id="host-controls" class="mt-3 hidden">
+        <button id="btn-start" class="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-2 rounded" disabled>Start</button>
+        <div id="start-hint" class="text-sm text-gray-300 mt-1">Waiting for opponent to join…</div>
       </div>
 
       <div class="flex justify-between items-center max-w-6xl mx-auto mb-4 px-8 text-xl font-semibold text-white">
@@ -65,39 +59,36 @@ export async function renderOnlineTournamentRoom() {
     </div>
   `);
 
-  const container = document.getElementById('pong-root') as HTMLDivElement | null;
+  const container = document.getElementById('pong-root') as HTMLElement | null;
   if (!container) return;
+  const hostControls = document.getElementById('host-controls') as HTMLDivElement | null;
+  const btnStart = document.getElementById('btn-start') as HTMLButtonElement | null;
+  const startHint = document.getElementById('start-hint') as HTMLDivElement | null;
 
-  // Obtain my identity
+  // Identity + alias help
   let me: any = null;
   try { me = await getUserInfo(); } catch { me = null; }
   const myId: number | null = me?.id ?? null;
 
-  // Join the game room to learn socket role + current alias mapping
-  let role: 'left' | 'right' = 'left'; // left == host, right == guest in our renderer
+  // Join room for role & names
+  let role: 'left' | 'right' = 'left';
   let hostAlias = 'P1';
-  let guestAlias = 'P2';
+  let guestAlias = '— waiting —';
   try {
     const res = await fetch(`/api/game/room/${roomId}/join`, { method: 'POST', credentials: 'include' });
     const data = await res.json();
     if (!res.ok) throw new Error(data?.error || `Join failed (${res.status})`);
     role = data.role;
     hostAlias  = data.host_alias || 'P1';
-    guestAlias = data.guest_alias || 'P2';
-
-    // set names for engine UI
-    localStorage.setItem('p1', hostAlias);
-    localStorage.setItem('p2', guestAlias);
-    localStorage.setItem('p1Score','0');
-    localStorage.setItem('p2Score','0');
+    guestAlias = data.guest_alias || '— waiting —';
   } catch (e: any) {
     setContent(`<div class="p-6 text-red-400">Could not join room: ${escapeHtml(e?.message || '')}</div>`);
     return;
   }
 
-  // Fetch match details so we can map bracket P1/P2 to room host/guest
+  // Snapshot to map bracket P1 ↔ room host/guest for winner_slot & p1/p2 score mapping
   let match: MatchLite | null = null;
-  let bracketP1Side: 'host' | 'guest' = 'host'; // default; we will try to detect
+  let bracketP1Side: 'host' | 'guest' = 'host';
   let bracketP1Alias: string | null = null;
   let bracketP2Alias: string | null = null;
   try {
@@ -119,7 +110,7 @@ export async function renderOnlineTournamentRoom() {
     }
   } catch {}
 
-  // Set initial nameplates
+  // UI helpers
   const updateNameplates = () => {
     const p1Name = localStorage.getItem('p1') || hostAlias;
     const p2Name = localStorage.getItem('p2') || guestAlias;
@@ -134,8 +125,7 @@ export async function renderOnlineTournamentRoom() {
   const onScore = () => updateNameplates();
   window.addEventListener('pong:score', onScore as any);
 
-  function showEndOverlay(detail?: any) {
-    // Winner message + back-to-lobby button for both players
+  const showEndOverlay = (detail?: any) => {
     const el = document.createElement('div');
     el.className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-40';
     const winnerText = detail?.winner ? `Winner: ${escapeHtml(String(detail.winner))}` : 'Match Over';
@@ -152,17 +142,32 @@ export async function renderOnlineTournamentRoom() {
       el.remove();
       route(`/tournament-online?lobby=${encodeURIComponent(String(lobbyId))}`);
     });
-  }
+  };
 
-  // Build WS URL
+  // Build WebSocket
   const wsProto  = location.protocol === 'https:' ? 'wss' : 'ws';
   const wsURL    = `${wsProto}://${location.host}/ws/game/${roomId}?role=${role}`;
   const ws = new WebSocket(wsURL);
 
-  // Cleanly close the socket on SPA nav/reload
+  // Clean shutdown
   const cleanup = () => { try { ws.close(1001, 'navigate'); } catch {} };
   window.addEventListener('beforeunload', cleanup);
   window.addEventListener('popstate', cleanup);
+
+  // Presence & streaming hooks
+  let pushGuestInputToEngine: ((input: { up: boolean; down: boolean }) => void) | null = null;
+  let applyStateFromHost: ((state: any) => void) | null = null;
+  let resendTimer: number | null = null;
+  let guestJoined = guestAlias && guestAlias !== '— waiting —';
+  let engineStarted = false;
+  let postedComplete = false;
+
+  // Show/enable Start button only for host
+  if (role === 'left' && hostControls && btnStart) {
+    hostControls.classList.remove('hidden');
+    btnStart.disabled = !guestJoined;
+    if (guestJoined) startHint && (startHint.textContent = 'Opponent is here. You can start!');
+  }
 
   ws.addEventListener('open', () => {
     const myAlias = (myId && myId === (role === 'left' ? match?.p1_user_id : match?.p2_user_id))
@@ -171,29 +176,27 @@ export async function renderOnlineTournamentRoom() {
     ws.send(JSON.stringify({ type: 'hello', alias: myAlias, role }));
   });
 
-  // Engine interop holders
-  let pushGuestInputToEngine: ((input: { up: boolean; down: boolean }) => void) | null = null;
-  let applyStateFromHost: ((state: any) => void) | null = null;
-  let resendTimer: number | null = null;
-
   ws.addEventListener('message', (ev) => {
     let msg: any;
     try { msg = JSON.parse(ev.data); } catch { return; }
 
     if (msg.type === 'hello' && msg.alias) {
+      // Update opponent alias and enable Start for host
       if (role === 'left') {
         localStorage.setItem('p2', String(msg.alias));
+        guestAlias = String(msg.alias);
+        guestJoined = true;
+        updateNameplates();
+        if (btnStart) btnStart.disabled = false;
+        if (startHint) startHint.textContent = 'Opponent is here. You can start!';
+        // Tell engine (if started) names
+        try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { right: guestAlias } })); } catch {}
       } else {
         localStorage.setItem('p1', String(msg.alias));
+        hostAlias = String(msg.alias);
+        updateNameplates();
+        try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { left: hostAlias } })); } catch {}
       }
-      updateNameplates();
-      // also tell engine names
-      try {
-        const detail: any = {};
-        const left = localStorage.getItem('p1'); if (left) detail.left = left;
-        const right = localStorage.getItem('p2'); if (right) detail.right = right;
-        window.dispatchEvent(new CustomEvent('pong:setNames', { detail }));
-      } catch {}
       return;
     }
 
@@ -203,6 +206,17 @@ export async function renderOnlineTournamentRoom() {
     }
     if (role === 'right' && msg.type === 'state' && applyStateFromHost) {
       applyStateFromHost(msg.state);
+      try {
+        const scores = (msg.state && (msg.state.scores || {})) || {};
+        const left  = Number((scores.left  ?? msg.state?.leftScore  ?? msg.state?.p1Score ?? msg.state?.scoreLeft)  ?? 0);
+        const right = Number((scores.right ?? msg.state?.rightScore ?? msg.state?.p2Score ?? msg.state?.scoreRight) ?? 0);
+        if (Number.isFinite(left) && Number.isFinite(right)) {
+          localStorage.setItem('p1Score', String(left));
+          localStorage.setItem('p2Score', String(right));
+          updateNameplates();
+          window.dispatchEvent(new CustomEvent('pong:score', { detail: { left, right } }));
+        }
+      } catch {}
       return;
     }
 
@@ -214,52 +228,54 @@ export async function renderOnlineTournamentRoom() {
     }
   });
 
-  // Launch engine
-  if (role === 'left') {
-    // HOST: simulate and emit state
-    initPongGame(container, () => {
+  // Host-only: start once guest joined AND button clicked
+  const startHostGame = () => {
+    if (engineStarted) return;
+    engineStarted = true;
+    // remove our start UI
+    if (hostControls) hostControls.remove();
+
+    try { localStorage.setItem('p1', hostAlias); } catch {}
+    try {
+      if (guestJoined) localStorage.setItem('p2', guestAlias);
+      localStorage.setItem('p1Score', '0');
+      localStorage.setItem('p2Score', '0');
+    } catch {}
+
+    initPongGame(container as HTMLElement, async () => {
+      // Host end-of-match handler: compute winner, POST /complete, notify guest, overlay
       try { localStorage.removeItem('game.inProgress'); } catch {}
-    }, {
-      control: 'left',
-      netMode: 'host',
-      emitState: (state: any) => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'state', state }));
-      },
-      onRemoteInput: (register: any) => { pushGuestInputToEngine = register; },
-    });
-
-    // When the engine ends on host, announce and report to tournament
-    const onGameEnd = async (e: any) => {
-      updateNameplates();
-
-      // announce to guest
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'gameover', detail: e?.detail || {} }));
-      }
-
-      // compute scores (left is host, right is guest)
       const hostScore = parseInt(localStorage.getItem('p1Score') || '0', 10);
       const guestScore = parseInt(localStorage.getItem('p2Score') || '0', 10);
 
-      // decide winner_slot using bracketP1Side mapping
-      let winner_slot: 'p1' | 'p2' | undefined;
-      let winner_side: 'host' | 'guest' | undefined;
-      if (Number.isFinite(hostScore) && Number.isFinite(guestScore) && hostScore !== guestScore) {
-        const hostWon = hostScore > guestScore;
-        winner_side = hostWon ? 'host' : 'guest';
-        if (hostWon) winner_slot = (bracketP1Side === 'host') ? 'p1' : 'p2';
-        else winner_slot = (bracketP1Side === 'guest') ? 'p1' : 'p2';
+      // compute winner text for overlay
+      let winnerAlias = '—';
+      if (Number.isFinite(hostScore) && Number.isFinite(guestScore)) {
+        winnerAlias = hostScore > guestScore ? hostAlias : guestAlias;
       }
 
-      // also pass p1/p2 scores if we can map aliases precisely
+      // Derive winner_slot and p1/p2 scores relative to bracket
+      let winner_slot: 'p1' | 'p2' | undefined;
+      if (Number.isFinite(hostScore) && Number.isFinite(guestScore) && hostScore !== guestScore) {
+        const hostWon = hostScore > guestScore;
+        winner_slot = hostWon
+          ? (bracketP1Side === 'host' ? 'p1' : 'p2')
+          : (bracketP1Side === 'guest' ? 'p1' : 'p2');
+      }
       let p1_score: number | undefined;
       let p2_score: number | undefined;
       if (bracketP1Side === 'host') { p1_score = hostScore; p2_score = guestScore; }
       else { p1_score = guestScore; p2_score = hostScore; }
 
-      // send completion (guarded)
-      if (!__postedComplete) {
-        __postedComplete = true;
+      // Notify guest
+      const detail = winnerAlias !== '—' ? { winner: winnerAlias } : {};
+      if (ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'gameover', detail })); } catch {}
+      }
+
+      // Post completion exactly once
+      if (!postedComplete) {
+        postedComplete = true;
         try {
           await fetch(`/api/tournament/${lobbyId}/match/${matchId}/complete`, {
             method: 'POST',
@@ -267,7 +283,6 @@ export async function renderOnlineTournamentRoom() {
             credentials: 'include',
             body: JSON.stringify({
               winner_slot,
-              winner_side,
               host_score: hostScore,
               guest_score: guestScore,
               p1_score, p2_score
@@ -276,11 +291,27 @@ export async function renderOnlineTournamentRoom() {
         } catch {}
       }
 
-      showEndOverlay(e?.detail);
-    };
-    window.addEventListener('pong:gameend', onGameEnd, { once: true });
-  } else {
-    // GUEST: send input; render host snapshots
+      // Show local overlay with Back to lobby
+      showEndOverlay(detail);
+    }, {
+      control: 'left',
+      netMode: 'host',
+      emitState: (state: any) => {
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'state', state }));
+      },
+      onRemoteInput: (register: any) => { pushGuestInputToEngine = register; },
+    });
+  };
+
+  if (role === 'left' && btnStart) {
+    btnStart.addEventListener('click', () => {
+      if (!guestJoined) return;
+      startHostGame();
+    });
+  }
+
+  // Guest engine
+  if (role === 'right') {
     const pressed = { up: false, down: false };
     const send = () => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -300,7 +331,7 @@ export async function renderOnlineTournamentRoom() {
     window.addEventListener('keydown', onKD, true);
     window.addEventListener('keyup', onKU, true);
 
-    initPongGame(container, () => {
+    initPongGame(container as HTMLElement, () => {
       try { localStorage.removeItem('game.inProgress'); } catch {}
       window.removeEventListener('keydown', onKD, true);
       window.removeEventListener('keyup', onKU, true);
@@ -311,8 +342,18 @@ export async function renderOnlineTournamentRoom() {
       netMode: 'guest',
       applyState: (register: any) => { applyStateFromHost = register; },
     });
+
+    try {
+      // initialize nameplates for the engine
+      const detail: any = {};
+      const maybeLeft  = (localStorage.getItem('p1') || hostAlias  || '').trim();
+      const maybeRight = (localStorage.getItem('p2') || guestAlias || '').trim();
+      if (maybeLeft) detail.left = maybeLeft;
+      if (maybeRight && maybeRight !== '— waiting —') detail.right = maybeRight;
+      window.dispatchEvent(new CustomEvent('pong:setNames', { detail }));
+    } catch {}
   }
 }
 
-// default export for bundlers that expect it
+// default export
 export default renderOnlineTournamentRoom;

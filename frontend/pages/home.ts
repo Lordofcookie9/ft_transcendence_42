@@ -188,7 +188,7 @@ export async function renderLocal1v1() {
   const container = document.getElementById("pong-root");
   if (container) {
     try { localStorage.setItem('p1Score','0'); localStorage.setItem('p2Score','0'); } catch {}
-    initPongGame(container, () => {
+    initPongGame(container as HTMLElement, () => {
       // 1v1 finished — clear the flag
       try { localStorage.removeItem('game.inProgress'); } catch {}
     });
@@ -203,7 +203,7 @@ export async function renderLocal1v1() {
       if (container)
       { 
         try { localStorage.setItem('p1Score','0'); localStorage.setItem('p2Score','0'); } catch {}
-        initPongGame(container);
+        initPongGame(container as HTMLElement);
       }
     };
   }
@@ -254,7 +254,7 @@ export async function renderLocalVsAI() {
   const container = document.getElementById("pong-root");
   if (container) {
     initPongGame(
-      container,
+      container as HTMLElement,
       () => {
         // game finished
         try { localStorage.removeItem('game.inProgress'); } catch {}
@@ -313,15 +313,14 @@ export async function renderPrivate1v1() {
     hostAlias  = data.host_alias || 'P1';
     guestAlias = data.guest_alias || '— waiting —';
 
-        // Store host name immediately
+    // Store host name immediately
     localStorage.setItem('p1', hostAlias);
 
     // IMPORTANT: do NOT store the "— waiting —" placeholder in localStorage.
-    // The engine reads from localStorage on first score and would cache it.
     if (guestAlias && guestAlias !== '— waiting —') {
       localStorage.setItem('p2', guestAlias);
     } else {
-      localStorage.removeItem('p2'); // keep it unset until we learn the real name
+      localStorage.removeItem('p2');
     }
 
     // Reset scores
@@ -338,10 +337,7 @@ export async function renderPrivate1v1() {
     // host=left=P1, guest=right=P2 in this view
     const p1 = parseInt(localStorage.getItem('p1Score') || '0', 10);
     const p2 = parseInt(localStorage.getItem('p2Score') || '0', 10);
-
-    // If scores are equal, don't send (shouldn't happen at end of match)
     if (Number.isNaN(p1) || Number.isNaN(p2) || p1 === p2) return;
-
     const iWon = (role === 'left') ? (p1 > p2) : (p2 > p1);
     const host_score  = p1;
     const guest_score = p2;
@@ -357,7 +353,14 @@ export async function renderPrivate1v1() {
       console.error('Failed to report result', e);
     }
   }
-  // >>> END PLACEMENT <<<
+
+  // Base UI with our own Start (host-only, disabled until guest arrives)
+  const hostStartHtml = role === 'left' ? `
+    <div id="host-start-wrap" class="mb-3">
+      <button id="host-start" class="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:opacity-60 text-white px-4 py-2 rounded" disabled>
+        Start match (waiting for opponent…)
+      </button>
+    </div>` : '';
 
   setContent(`
     <div class="relative text-center mt-10">
@@ -367,8 +370,10 @@ export async function renderPrivate1v1() {
         Room #${escapeHtml(String(roomId))} — You are <strong>${role === 'left' ? 'Left (W/S)' : 'Right (↑/↓)'}</strong>
       </div>
       <div id="prestart" class="text-gray-300 text-sm mb-3">
-        Waiting for host to press <strong>Start</strong>…
+        ${role === 'left' ? 'Waiting for opponent to join…' : 'Waiting for host to start…'}
       </div>
+
+      ${hostStartHtml}
 
       <div class="flex justify-between items-center max-w-6xl mx-auto mb-4 px-8 text-xl font-semibold text-white">
         <div id="player1-info" class="text-left w-1/3">${escapeHtml(hostAlias)}: 0</div>
@@ -385,15 +390,18 @@ export async function renderPrivate1v1() {
   const container = document.getElementById('pong-root') as HTMLDivElement | null;
   if (!container) return;
 
-  // Helpers for "press ↑ to start" and end overlay
   const prestart = document.getElementById('prestart') as HTMLDivElement | null;
+  const hostStartBtn = document.getElementById('host-start') as HTMLButtonElement | null;
+  const hostStartWrap = document.getElementById('host-start-wrap') as HTMLDivElement | null;
   const hidePrestart = () => { if (prestart) prestart.style.display = 'none'; };
+  const removeStartUI = () => { if (hostStartWrap) hostStartWrap.remove(); };
 
-  //lock current names to avoid redisplay of "Waiting"
   let lockedHostName = hostAlias;
   let lockedGuestName = guestAlias;
 
-  
+  let guestPresent = (guestAlias && guestAlias !== '— waiting —');
+  let hostStarted = false;
+
   const updateNameplates = () => {
     const p1Name = (localStorage.getItem('p1') && localStorage.getItem('p1') !== '— waiting —')
       ? localStorage.getItem('p1')!
@@ -407,6 +415,7 @@ export async function renderPrivate1v1() {
     if (el1) el1.innerHTML = `${escapeHtml(p1Name)}: ${escapeHtml(p1Score)}`;
     if (el2) el2.innerHTML = `${escapeHtml(p2Name)}: ${escapeHtml(p2Score)}`;
   };
+
   function showEndOverlay(detail?: any) {
     const el = document.createElement('div');
     el.className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-40';
@@ -426,50 +435,102 @@ export async function renderPrivate1v1() {
   const wsURL    = `${wsProto}://${location.host}/ws/game/${roomId}?role=${role}`;
   const ws = new WebSocket(wsURL);
 
-  // Cleanly close the socket on SPA nav/reload
   const cleanup = () => { try { ws.close(1001, 'navigate'); } catch {} };
   window.addEventListener('beforeunload', cleanup);
   window.addEventListener('popstate', cleanup);
 
-  //keep score UI consistent when score change
   const onScore = () => updateNameplates();
   window.addEventListener('pong:score', onScore as any);
 
   ws.addEventListener('open', () => {
-    console.log('[WS] open →', ws.url, 'protocol=', ws.protocol || '(none)');
-    // Presence: tell the other side who I am
     const myAlias = localStorage.getItem('display_name') || localStorage.getItem('alias') || 'Player';
     ws.send(JSON.stringify({ type: 'hello', alias: myAlias, role }));
   });
-  ws.addEventListener('error', (e) => {
-    console.error('[WS] error', e);
-  });
-  ws.addEventListener('close', (e) => {
-    console.warn('[WS] close', e.code, e.reason);
+
+  ws.addEventListener('close', () => {
     window.removeEventListener('beforeunload', cleanup);
     window.removeEventListener('popstate', cleanup);
     window.removeEventListener('pong:score', onScore as any);
   });
 
-  // Engine interop holders (the engine will give us these)
+  // Engine interop holders
   let pushGuestInputToEngine: ((input: { up: boolean; down: boolean }) => void) | null = null;
   let applyStateFromHost: ((state: any) => void) | null = null;
-  let resendTimer: number | null = null; // guest input resend loop
+  let resendTimer: number | null = null;
+
+  // HOST: start function (deferred until guest is present + button click)
+  const startHostGame = () => {
+    if (hostStarted || !container) return;
+    hostStarted = true;
+    removeStartUI();
+    hidePrestart();
+    try { localStorage.setItem('p1Score','0'); localStorage.setItem('p2Score','0'); } catch {}
+
+    initPongGame(
+      container as HTMLElement,
+      () => {
+        try { localStorage.removeItem('game.inProgress'); } catch {}
+
+        const p1 = parseInt(localStorage.getItem('p1Score') || '0', 10);
+        const p2 = parseInt(localStorage.getItem('p2Score') || '0', 10);
+        const winner =
+          Number.isFinite(p1) && Number.isFinite(p2)
+            ? (p1 > p2 ? (lockedHostName || 'P1') : (localStorage.getItem('p2') || lockedGuestName || 'P2'))
+            : undefined;
+
+        const detail: any = winner ? { winner } : {};
+        if (ws.readyState === WebSocket.OPEN) {
+          try { ws.send(JSON.stringify({ type: 'gameover', detail })); } catch {}
+        }
+        reportResult();
+        showEndOverlay(detail);
+      },
+      {
+        control: 'left',
+        netMode: 'host',
+        emitState: (state) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'state', state }));
+        },
+        onRemoteInput: (register) => { pushGuestInputToEngine = register; },
+      }
+    );
+
+    // Tell engine the names
+    try {
+      const maybeRight = (localStorage.getItem('p2') || lockedGuestName || '').trim();
+      const detail: any = { left: lockedHostName };
+      if (maybeRight && maybeRight !== '— waiting —') detail.right = maybeRight;
+      window.dispatchEvent(new CustomEvent('pong:setNames', { detail }));
+    } catch {}
+  };
+
+  // Wire Start button
+  if (role === 'left' && hostStartBtn) {
+    hostStartBtn.disabled = !guestPresent;
+    if (guestPresent) hostStartBtn.textContent = 'Start match';
+    hostStartBtn.addEventListener('click', () => {
+      if (!guestPresent) return;
+      startHostGame();
+    });
+  }
 
   ws.addEventListener('message', (ev) => {
     let msg: any;
     try { msg = JSON.parse(ev.data); } catch { return; }
 
-    // Presence → update opponent nameplate
     if (msg.type === 'hello' && msg.alias) {
+      const name = String(msg.alias);
       if (role === 'left') {
-        const name = String(msg.alias);
         localStorage.setItem('p2', name);
-        lockedGuestName = name; // make sure our fallback is the real alias
+        lockedGuestName = name;
+        guestPresent = true;
+        if (hostStartBtn) {
+          hostStartBtn.disabled = false;
+          hostStartBtn.textContent = 'Start match';
+        }
         const el = document.getElementById('player2-info');
         if (el) el.innerHTML = `${escapeHtml(name)}: 0`;
       } else {
-        const name = String(msg.alias);
         localStorage.setItem('p1', name);
         lockedHostName = name;
         const el = document.getElementById('player1-info');
@@ -477,32 +538,26 @@ export async function renderPrivate1v1() {
       }
       updateNameplates();
       try {
-      const name = String(msg.alias);
-      if (role === 'left') {
-        window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { right: name } }));
-      } else {
-        window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { left: name } }));
-      }
-    } catch {}
+        if (role === 'left') {
+          window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { right: name } }));
+        } else {
+          window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { left: name } }));
+        }
+      } catch {}
       return;
     }
 
-    // Gameplay streams
     if (role === 'left' && msg.type === 'input' && pushGuestInputToEngine) {
       pushGuestInputToEngine({ up: !!msg.up, down: !!msg.down });
       return;
     }
     if (role === 'right' && msg.type === 'state' && applyStateFromHost) {
-      hidePrestart(); // host is producing snapshots → we're live
+      hidePrestart(); // once host is sending
       applyStateFromHost(msg.state);
       try {
         const scores = (msg.state && (msg.state.scores || {})) || {};
-        const left  = Number(
-          (scores.left ?? msg.state?.leftScore ?? msg.state?.p1Score ?? msg.state?.scoreLeft) ?? 0
-        );
-        const right = Number(
-          (scores.right ?? msg.state?.rightScore ?? msg.state?.p2Score ?? msg.state?.scoreRight) ?? 0
-        );
+        const left  = Number((scores.left ?? msg.state?.leftScore ?? msg.state?.p1Score ?? msg.state?.scoreLeft) ?? 0);
+        const right = Number((scores.right ?? msg.state?.rightScore ?? msg.state?.p2Score ?? msg.state?.scoreRight) ?? 0);
         if (Number.isFinite(left) && Number.isFinite(right)) {
           localStorage.setItem('p1Score', String(left));
           localStorage.setItem('p2Score', String(right));
@@ -510,86 +565,28 @@ export async function renderPrivate1v1() {
           window.dispatchEvent(new CustomEvent('pong:score', { detail: { left, right } }));
         }
       } catch {}
- 
       return;
     }
 
-    // Mirrored game over (guest receives this from host)
     if (msg.type === 'gameover') {
       hidePrestart();
       updateNameplates();
       showEndOverlay(msg.detail);
-      // REPORT RESULT HERE for the guest (host reports locally below)
       reportResult();
       if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
       return;
     }
   });
 
-
-  // Start engine with online hooks — private mode (no global 'pong:gameend')
-  if (role === 'left') {
-    // HOST: simulate and emit state to guest
-    try { localStorage.setItem('p1Score','0'); localStorage.setItem('p2Score','0'); } catch {}
-    initPongGame(
-      container,
-      () => {
-        // Match finished — compute winner, notify guest, report result, show overlay
-        try { localStorage.removeItem('game.inProgress'); } catch {}
-
-        const p1 = parseInt(localStorage.getItem('p1Score') || '0', 10);
-        const p2 = parseInt(localStorage.getItem('p2Score') || '0', 10);
-        const winner =
-          Number.isFinite(p1) && Number.isFinite(p2)
-            ? (p1 > p2 ? hostAlias : guestAlias)
-            : undefined;
-
-        // Tell guest the match is over
-        const detail: any = winner ? { winner } : {};
-        if (ws.readyState === WebSocket.OPEN) {
-          try { ws.send(JSON.stringify({ type: 'gameover', detail })); } catch {}
-        }
-
-        // Report to backend (for private games)
-        reportResult();
-
-        // Local overlay
-        showEndOverlay(detail);
-      },
-      {
-        control: 'left',
-        netMode: 'host',
-        emitState: (state) => {
-          hidePrestart(); // once we’re producing state, we’re past the prestart
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'state', state }));
-          }
-        },
-        onRemoteInput: (register) => { pushGuestInputToEngine = register; },
-      }
-    );
-
-    try {
-      const maybeRight = (localStorage.getItem('p2') || guestAlias || '').trim();
-      const detail: any = { left: hostAlias };
-      if (maybeRight && maybeRight !== '— waiting —') detail.right = maybeRight;
-      window.dispatchEvent(new CustomEvent('pong:setNames', { detail }));
-    } catch {}
-
-  } else {
+  if (role === 'right') {
     // GUEST: send input; render host snapshots
     const pressed = { up: false, down: false };
-
     const send = () => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'input', up: pressed.up, down: pressed.down }));
       }
     };
-
-    // Periodically resend current input state so host always has the latest (tiny overhead)
-    resendTimer = window.setInterval(send, 50); // ~20 fps
-
-    // Capture arrow keys and update `pressed`
+    resendTimer = window.setInterval(send, 50);
     const onKD = (e: KeyboardEvent) => {
       if (e.code === 'ArrowUp')   { pressed.up = true;  e.preventDefault(); hidePrestart(); send(); }
       if (e.code === 'ArrowDown') { pressed.down = true; e.preventDefault(); hidePrestart(); send(); }
@@ -601,14 +598,12 @@ export async function renderPrivate1v1() {
     window.addEventListener('keydown', onKD, true);
     window.addEventListener('keyup', onKU, true);
 
-    // If the socket opens after we pressed, push current state immediately
     ws.addEventListener('open', send);
 
     try { localStorage.setItem('p1Score','0'); localStorage.setItem('p2Score','0'); } catch {}
     initPongGame(
-      container,
+      container as HTMLElement,
       () => {
-        // cleanup
         try { localStorage.removeItem('game.inProgress'); } catch {}
         window.removeEventListener('keydown', onKD, true);
         window.removeEventListener('keyup', onKU, true);
@@ -631,7 +626,6 @@ export async function renderPrivate1v1() {
       window.dispatchEvent(new CustomEvent('pong:setNames', { detail }));
     } catch {}
   }
-
 
   const replayBtn = document.getElementById('replay-btn') as HTMLButtonElement | null;
   if (replayBtn) {
