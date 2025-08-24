@@ -432,40 +432,51 @@ module.exports = function registerTournamentRoutes(fastify) {
     }
   });
 
-  // Create/get private room for a match; first caller becomes host
+  // Create/get room for a tournament match; P1 must be host (left), P2 guest (right)
   fastify.post('/api/tournament/:id/match/:mid/room', { preValidation: [fastify.authenticate] }, async (req, reply) => {
     try {
       const lobbyId = Number(req.params.id);
       const matchId = Number(req.params.mid);
       const me = req.user.id;
+
+      // Load the match
       const m = await fastify.db.get(
-        `SELECT * FROM tournament_matches WHERE id = ? AND lobby_id = ?`,
+        `SELECT id, lobby_id, p1_user_id, p2_user_id, p1_alias, p2_alias, room_id, status
+          FROM tournament_matches
+          WHERE id = ? AND lobby_id = ?`,
         [matchId, lobbyId]
       );
       if (!m) return reply.code(404).send({ error: 'match_not_found' });
-      if (m.status === 'finished') return reply.code(400).send({ error: 'match_finished' });
-      if (Number(m.p1_user_id) !== me && Number(m.p2_user_id) !== me) {
+
+      // Must be one of the two players
+      if (Number(m.p1_user_id) !== Number(me) && Number(m.p2_user_id) !== Number(me)) {
         return reply.code(403).send({ error: 'not_in_match' });
       }
-      if (!m.p1_user_id || !m.p2_user_id) return reply.code(400).send({ error: 'opponent_missing' });
-      if (!m.room_id) {
+
+      // Ensure a room exists and that its host is **P1** (left)
+      let roomId = m.room_id;
+      if (!roomId) {
+        // IMPORTANT: use a distinct mode for tournaments so private invites are unaffected
         const ins = await fastify.db.run(
-          `INSERT INTO game_rooms (host_id, status, mode) VALUES (?, 'pending', 'private_1v1')`,
-          [me]
+          `INSERT INTO game_rooms (host_id, guest_id, status, mode)
+                VALUES (?, NULL, 'pending', 'tournament_match')`,
+          [m.p1_user_id]
         );
-        const roomId = ins.lastID;
+        roomId = ins.lastID;
+
         await fastify.db.run(
-          `UPDATE tournament_matches SET room_id = ?, status='active' WHERE id = ?`,
-          [roomId, matchId]
+          `UPDATE tournament_matches SET room_id = ? WHERE id = ? AND lobby_id = ?`,
+          [roomId, matchId, lobbyId]
         );
-        return reply.send({ ok: true, room_id: roomId });
       }
-      return reply.send({ ok: true, room_id: m.room_id });
+
+      return reply.send({ ok: true, room_id: roomId });
     } catch (err) {
-      req.log && req.log.error && req.log.error({ err }, 'join_match_room_failed');
-      return reply.code(500).send({ error: 'join_match_room_failed' });
+      req.log?.error({ err }, 'join_match_room_failed');
+      return reply.code(500).send({ error: 'internal_error' });
     }
   });
+
 
   // Mark match complete; compute winner; when the entire round finishes, build the next round randomly.
   fastify.post('/api/tournament/:id/match/:mid/complete', async (req, reply) => {

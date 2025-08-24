@@ -158,7 +158,9 @@ export async function renderOnlineTournamentLobby() {
       <div id="participants" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3"></div>
     </div>
   `);
-  //handle disconection
+
+  // ---- Abort WS that used to bring everyone home ----
+  let __tournamentFinished = false; // once set, ignore aborts and close the socket
   try { (window as any).__tLobbyAbortWS?.close(1000); } catch {}
   const __wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
   const __abortURL = `${__wsProto}://${location.host}/ws/?lobbyId=${encodeURIComponent(String(lobbyId))}`;
@@ -166,6 +168,7 @@ export async function renderOnlineTournamentLobby() {
   (window as any).__tLobbyAbortWS = __abortWS;
 
   __abortWS.addEventListener('message', (ev) => {
+    if (__tournamentFinished) return; // do nothing after winner is crowned
     let msg: any; try { msg = JSON.parse(ev.data); } catch { return; }
     if (msg && msg.type === 'tournament:aborted') {
       try { alert(String(msg.message || 'A player has left the tournament, you will be brought home.')); } catch {}
@@ -224,6 +227,12 @@ export async function renderOnlineTournamentLobby() {
     const startBtn = document.getElementById('start-btn') as HTMLButtonElement | null;
     const note = document.getElementById('host-note') as HTMLDivElement | null;
     if (!info || !list || !snap || !snap.ok) return;
+
+    // If the tournament is finished, disable/close abort socket so no redirects can happen
+    if (snap.lobby.status === 'finished' && !__tournamentFinished) {
+      __tournamentFinished = true;
+      try { __abortWS.close(1000, 'tournament_finished'); } catch {}
+    }
 
     renderWinnerBanner(snap);
 
