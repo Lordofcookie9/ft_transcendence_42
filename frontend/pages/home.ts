@@ -2,6 +2,7 @@ import { getUserInfo, logout } from '../users/userManagement.js';
 import { setContent, escapeHtml } from '../utility.js';
 import { initPongGame } from "../pong/pong.js";
 import { updateChatBox, updateCounter } from './chat.js';
+import { route } from '../router.js';
 
 export function renderHome() {
   const alias = localStorage.getItem("alias") || "Guest";
@@ -518,6 +519,18 @@ export async function renderPrivate1v1() {
     let msg: any;
     try { msg = JSON.parse(ev.data); } catch { return; }
 
+      // go home on host leaving
+    if (msg.type === 'info' && typeof msg.message === 'string') {
+      try { alert(msg.message); } catch {}
+      try { route('/home'); } catch { location.href = '/home'; }
+      return;
+    }
+
+    if (msg.type === 'opponent:left' && msg.role === 'host' && role === 'right') {
+      try { alert('host left. Going back home'); } catch {}
+      try { route('/home'); } catch { location.href = '/home'; }
+      return;
+    }
     if (msg.type === 'hello' && msg.alias) {
       const name = String(msg.alias);
       if (role === 'left') {
