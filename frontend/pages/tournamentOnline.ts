@@ -158,6 +158,23 @@ export async function renderOnlineTournamentLobby() {
       <div id="participants" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3"></div>
     </div>
   `);
+  //handle disconection
+  try { (window as any).__tLobbyAbortWS?.close(1000); } catch {}
+  const __wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const __abortURL = `${__wsProto}://${location.host}/ws/?lobbyId=${encodeURIComponent(String(lobbyId))}`;
+  const __abortWS = new WebSocket(__abortURL);
+  (window as any).__tLobbyAbortWS = __abortWS;
+
+  __abortWS.addEventListener('message', (ev) => {
+    let msg: any; try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg && msg.type === 'tournament:aborted') {
+      try { alert(String(msg.message || 'A player has left the tournament, you will be brought home.')); } catch {}
+      try { route('/home'); } catch { location.href = '/home'; }
+    }
+  });
+  const __cleanupAbort = () => { try { __abortWS.close(1001, 'navigate'); } catch {} };
+  window.addEventListener('beforeunload', __cleanupAbort, { once: true });
+  window.addEventListener('popstate', __cleanupAbort, { once: true });
 
   const startBtn = document.getElementById('start-btn') as HTMLButtonElement | null;
   startBtn?.addEventListener('click', async () => {

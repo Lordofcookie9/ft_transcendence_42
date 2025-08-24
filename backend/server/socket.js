@@ -4,6 +4,9 @@ const WebSocket = require('ws');
 module.exports = function registerSockets(fastify) {
   // roomId -> { host: WebSocket|null, guest: WebSocket|null, hostAlias?: string, guestAlias?: string }
   const liveRooms = new Map();
+  // lobbyId -> Set<WebSocket> (sockets in lobby or in any match from this tournament)
+  const lobbyIndex = new Map();
+
   const WS_OPEN = 1;
 
   // ---------------- helpers ----------------
@@ -30,24 +33,64 @@ module.exports = function registerSockets(fastify) {
     return { roomId: '', role: '' };
   }
 
-  // Query params ?roomId=&role= (your client uses ?role=left|right)
+  // Query params ?roomId=&role=&lobbyId= (your client uses ?role=left|right)
   function parseFromQuery(urlish) {
     try {
       const u = new URL(urlish, 'http://x');
       const qs = u.searchParams;
       const roomId = qs.get('roomId') || qs.get('room_id') || qs.get('room') || '';
       const role = qs.get('role') || qs.get('side') || '';
-      return { roomId, role };
-    } catch { return { roomId: '', role: '' }; }
+      const lobbyId = qs.get('lobbyId') || qs.get('lobby_id') || '';
+      return { roomId, role, lobbyId };
+    } catch { return { roomId: '', role: '', lobbyId: '' }; }
   }
 
-  // Parse path — supports both /ws/game/<id> and /ws/room/<id>
+  // Parse path — supports both /ws/game/<id> and /ws/room/<id>, optional /left|right
   function parseFromPath(urlish) {
     const s = String(urlish || '');
     const m = s.match(/\/ws\/(?:game|room)\/(\d+)(?:\/(left|right|host|guest))?/i);
     if (m) return { roomId: m[1], role: m[2] || '' };
     return { roomId: '', role: '' };
   }
+
+  // Lobby index management
+  function addToLobbyIndex(lobbyId, ws) {
+    if (!lobbyId) return;
+    const lid = String(lobbyId);
+    if (!lobbyIndex.has(lid)) lobbyIndex.set(lid, new Set());
+    lobbyIndex.get(lid).add(ws);
+    ws.__lobbyId = lid;
+  }
+  function removeFromLobbyIndex(ws) {
+    const lid = ws && ws.__lobbyId;
+    if (!lid) return;
+    const set = lobbyIndex.get(lid);
+    if (set) {
+      set.delete(ws);
+      if (set.size === 0) lobbyIndex.delete(lid);
+    }
+    ws.__lobbyId = undefined;
+  }
+
+  // Broadcast tournament abort to everyone in a lobby (also closes sockets)
+  function broadcastTournamentAbort(lobbyId, reason = 'player_disconnected') {
+    const set = lobbyIndex.get(String(lobbyId));
+    if (!set || set.size === 0) return 0;
+    const payload = {
+      type: 'tournament:aborted',
+      reason,
+      message: 'A player has left the tournament, you will be brought home.'
+    };
+    let sent = 0;
+    for (const ws of set) { safeSend(ws, payload); sent++; }
+    // Close to force navigation even if the client ignores the message
+    for (const ws of set) { try { if (ws.readyState === WS_OPEN) ws.close(1000); } catch {} }
+    try { fastify.log.warn({ lobbyId, sent }, 'broadcasted tournament abort'); } catch {}
+    return sent;
+  }
+
+  // Expose for any internal use later (not required to call directly elsewhere)
+  fastify.decorate('broadcastTournamentAbort', broadcastTournamentAbort);
 
   // Notify both sides that the opponent is present (used right after a connect)
   function maybeNotifyBothPresent(roomId) {
@@ -86,6 +129,7 @@ module.exports = function registerSockets(fastify) {
 
     let roomId = '';
     let role = '';
+    let lobbyId = '';
 
     // 1) Parse from path (/ws/game/<id> OR /ws/room/<id>)
     {
@@ -94,14 +138,15 @@ module.exports = function registerSockets(fastify) {
       role = p.role;
     }
 
-    // 2) Fall back to query string
-    if (!roomId || !role) {
+    // 2) Query string (also allows ?lobbyId= for lobby-only sockets)
+    {
       const q = parseFromQuery(urlish);
       if (!roomId) roomId = q.roomId;
       if (!role) role = q.role;
+      if (!lobbyId) lobbyId = q.lobbyId;
     }
 
-    // 3) Fall back to subprotocol token
+    // 3) Subprotocol fallback
     if ((!roomId || !role) && selectedProto) {
       const pres = parseFromSubprotocolToken(selectedProto);
       if (!roomId && pres.roomId) roomId = pres.roomId;
@@ -109,6 +154,14 @@ module.exports = function registerSockets(fastify) {
     }
 
     role = normalizeRole(role || 'host');
+
+    // If we know lobbyId already (lobby-only socket), index it now
+    if (!roomId && lobbyId) {
+      addToLobbyIndex(lobbyId, ws);
+      fastify.log.info({ url: urlish, lobbyId }, 'WS lobby-only connected');
+      ws.on('close', () => { removeFromLobbyIndex(ws); });
+      return;
+    }
 
     fastify.log.info({ url: urlish, roomId, role }, 'WS upgrade (raw ws)');
 
@@ -119,6 +172,25 @@ module.exports = function registerSockets(fastify) {
 
     if (!liveRooms.has(roomId)) liveRooms.set(roomId, { host: null, guest: null });
     const entry = liveRooms.get(roomId);
+
+    // If this is a tournament match room, derive lobbyId and index this socket under that lobby
+    if (!lobbyId) {
+      try {
+        const row = await fastify.db.get(
+          `SELECT lobby_id FROM tournament_matches WHERE room_id = ? LIMIT 1`,
+          [roomId]
+        );
+        if (row && row.lobby_id) {
+          lobbyId = String(row.lobby_id);
+          addToLobbyIndex(lobbyId, ws);
+          fastify.log.info({ roomId, lobbyId }, 'indexed room socket under tournament lobby');
+        }
+      } catch (e) {
+        fastify.log.error({ e, roomId }, 'failed_to_lookup_lobby_for_room');
+      }
+    } else {
+      addToLobbyIndex(lobbyId, ws);
+    }
 
     // Replace same-role socket on reconnect (don’t leave zombies)
     try {
@@ -164,10 +236,10 @@ module.exports = function registerSockets(fastify) {
       }
     });
 
-    // -------- CLOSE HANDLER with private1v1 behavior + leave notice --------
+    // -------- CLOSE HANDLER (private1v1 + tournament abort) --------
     ws.on('close', async () => {
       const cur = liveRooms.get(roomId);
-      if (!cur) return;
+      if (!cur) { removeFromLobbyIndex(ws); return; }
 
       const wasHost  = (cur.host  === ws);
       const wasGuest = (cur.guest === ws);
@@ -180,24 +252,25 @@ module.exports = function registerSockets(fastify) {
         if (wasHost && cur.guest) notifyLeft(cur.guest, 'host');
         if (wasGuest && cur.host) notifyLeft(cur.host, 'guest');
 
-        // If the HOST left, decide if this room is a private1v1
         if (wasHost) {
-          let isTournamentRoom = false;
+          // Decide if this is a tournament room or a private 1v1
+          let tournamentRow = null;
           try {
-            // If there is a tournament_match for this room_id, it's NOT a private1v1
-            const tm = await fastify.db.get(
-              `SELECT 1 AS x FROM tournament_matches WHERE room_id = ? LIMIT 1`,
+            tournamentRow = await fastify.db.get(
+              `SELECT lobby_id FROM tournament_matches WHERE room_id = ? LIMIT 1`,
               [roomId]
             );
-            isTournamentRoom = !!tm;
           } catch (e) {
-            fastify.log.error({ e, roomId }, 'private1v1 check failed (tournament lookup)');
-            // If in doubt, we’ll still try to notify guest below.
+            fastify.log.error({ e, roomId }, 'tournament lookup on host close failed');
           }
 
-          const isPrivate1v1 = !isTournamentRoom;
-
-          if (isPrivate1v1) {
+          if (tournamentRow && tournamentRow.lobby_id) {
+            // ---- Tournament: abort and broadcast to EVERY participant (in lobby or in rooms) ----
+            const lid = String(tournamentRow.lobby_id);
+            broadcastTournamentAbort(lid, 'player_disconnected');
+            fastify.log.info({ roomId, lobbyId: lid }, 'tournament aborted due to host leaving match');
+          } else {
+            // ---- Private 1v1: notify guest and kick home (as you already shipped) ----
             if (cur.guest && cur.guest.readyState === WS_OPEN) {
               safeSend(cur.guest, { type: 'info', message: 'host left. Going back home' });
               try { cur.guest.close(1000); } catch {}
@@ -211,11 +284,10 @@ module.exports = function registerSockets(fastify) {
               fastify.log.error({ e, roomId }, 'failed_to_mark_private1v1_finished');
             }
             try { fastify.log.info({ roomId }, 'p1v1_host_left_notify_sent'); } catch {}
-          } else {
-            try { fastify.log.info({ roomId }, 'host left tournament room — no p1v1 action'); } catch {}
           }
         }
       } finally {
+        removeFromLobbyIndex(ws);
         if (!cur.host && !cur.guest) liveRooms.delete(roomId);
         fastify.log.info({ roomId, role, wasHost, wasGuest }, 'WS closed');
       }
@@ -232,5 +304,5 @@ module.exports = function registerSockets(fastify) {
 
   wss.on('connection', attachSocket);
 
-  return { wss, liveRooms };
+  return { wss, liveRooms, lobbyIndex };
 };
