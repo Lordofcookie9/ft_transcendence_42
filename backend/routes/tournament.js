@@ -256,6 +256,38 @@ module.exports = function registerTournamentRoutes(fastify) {
 
   // --- Routes ---
 
+  // List waiting lobbies (lightweight directory)
+  fastify.get('/api/tournament', async (req, reply) => {
+    try {
+      const rows = await fastify.db.all(`
+        SELECT l.id, l.host_id, l.size, l.status, l.created_at, u.display_name AS host_name,
+               COUNT(tp.id) AS count
+          FROM tournament_lobbies l
+          JOIN users u ON u.id = l.host_id
+          LEFT JOIN tournament_participants tp ON tp.lobby_id = l.id
+         WHERE l.status = 'waiting'
+         GROUP BY l.id
+         ORDER BY l.created_at DESC
+      `);
+      const result = rows.map(r => ({
+        id: r.id,
+        host_id: r.host_id,
+        host_name: r.host_name,
+        size: r.size,
+        status: r.status,
+        created_at: r.created_at,
+        count: r.count,
+        spots_left: Math.max(0, r.size - r.count)
+      }));
+      const me = req && req.user ? req.user.id : null;
+      const myWaitingLobby = me ? result.find(r => Number(r.host_id) === Number(me)) : null;
+      return reply.send({ ok: true, lobbies: result, my_waiting_lobby_id: myWaitingLobby ? myWaitingLobby.id : null });
+    } catch (err) {
+      req.log && req.log.error && req.log.error({ err }, 'list_lobbies_failed');
+      return reply.code(500).send({ error: 'list_failed' });
+    }
+  });
+
   // Create lobby and auto-join host
   fastify.post('/api/tournament', { preValidation: [fastify.authenticate] }, async (req, reply) => {
     try {
@@ -387,6 +419,12 @@ module.exports = function registerTournamentRoutes(fastify) {
       );
       return reply.send({ ok: true });
     } catch (err) {
+      // Gracefully handle race: two rapid join attempts causing UNIQUE constraint
+      const msg = (err && err.message) ? String(err.message) : '';
+      const code = err && err.code ? String(err.code) : '';
+      if (code === 'SQLITE_CONSTRAINT' || /UNIQUE constraint/i.test(msg)) {
+        return reply.send({ ok: true, already_in: true });
+      }
       req.log && req.log.error && req.log.error({ err }, 'join_lobby_failed');
       return reply.code(500).send({ error: 'join_failed' });
     }
@@ -449,16 +487,25 @@ module.exports = function registerTournamentRoutes(fastify) {
       }
       if (!m.p1_user_id || !m.p2_user_id) return reply.code(400).send({ error: 'opponent_missing' });
       if (!m.room_id) {
-        const ins = await fastify.db.run(
-          `INSERT INTO game_rooms (host_id, status, mode) VALUES (?, 'pending', 'private_1v1')`,
-          [me]
-        );
-        const roomId = ins.lastID;
-        await fastify.db.run(
-          `UPDATE tournament_matches SET room_id = ?, status='active' WHERE id = ?`,
-          [roomId, matchId]
-        );
-        return reply.send({ ok: true, room_id: roomId });
+        // Guard with a short transaction so simultaneous calls don't create two rooms
+        await fastify.db.run('BEGIN');
+        const again = await fastify.db.get(`SELECT room_id FROM tournament_matches WHERE id = ? AND lobby_id = ?`, [matchId, lobbyId]);
+        if (!again.room_id) {
+          const ins = await fastify.db.run(
+            `INSERT INTO game_rooms (host_id, status, mode) VALUES (?, 'pending', 'private_1v1')`,
+            [me]
+          );
+          const roomId = ins.lastID;
+            await fastify.db.run(
+              `UPDATE tournament_matches SET room_id = ?, status='active' WHERE id = ?`,
+              [roomId, matchId]
+            );
+          await fastify.db.run('COMMIT');
+          return reply.send({ ok: true, room_id: roomId });
+        } else {
+          await fastify.db.run('COMMIT');
+          return reply.send({ ok: true, room_id: again.room_id });
+        }
       }
       return reply.send({ ok: true, room_id: m.room_id });
     } catch (err) {
@@ -530,6 +577,53 @@ module.exports = function registerTournamentRoutes(fastify) {
         );
       }
       await fastify.db.run('COMMIT');
+
+      // Record into global matches / stats if this was an actual played room (not BYE) and not already recorded
+      if (m.room_id && m.p1_user_id && m.p2_user_id) {
+        try {
+          const already = await fastify.db.get(`SELECT id FROM matches WHERE room_id = ? LIMIT 1`, [m.room_id]);
+          if (!already) {
+            const roomRow = await fastify.db.get(`SELECT host_id, guest_id FROM game_rooms WHERE id = ?`, [m.room_id]);
+            if (roomRow && roomRow.host_id && roomRow.guest_id) {
+              const reqBody = req.body || {};
+              let hostScore = null; let guestScore = null;
+              // Prefer explicit host_score / guest_score
+              if (Number.isFinite(+reqBody.host_score) && Number.isFinite(+reqBody.guest_score)) {
+                hostScore = +reqBody.host_score; guestScore = +reqBody.guest_score;
+              } else if (Number.isFinite(+reqBody.p1_score) && Number.isFinite(+reqBody.p2_score)) {
+                // Map p1/p2 to host/guest
+                if (m.p1_user_id === roomRow.host_id) {
+                  hostScore = +reqBody.p1_score; guestScore = +reqBody.p2_score;
+                } else if (m.p2_user_id === roomRow.host_id) {
+                  hostScore = +reqBody.p2_score; guestScore = +reqBody.p1_score;
+                }
+              }
+              // Determine winner/loser for stats (already have winnerUserId)
+              if (winnerUserId && roomRow.host_id && roomRow.guest_id) {
+                const winner_id = winnerUserId;
+                const loser_id = (winnerUserId === roomRow.host_id) ? roomRow.guest_id : roomRow.host_id;
+                await fastify.db.run('BEGIN');
+                try {
+                  await fastify.db.run(
+                    `INSERT INTO matches (room_id, mode, host_id, guest_id, winner_id, loser_id, host_score, guest_score, finished_at)
+                     VALUES (?, 'tournament', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+                    [m.room_id, roomRow.host_id, roomRow.guest_id, winner_id, loser_id, hostScore, guestScore]
+                  );
+                  // Update PvP stats
+                  await fastify.db.run(`UPDATE users SET pvp_wins = pvp_wins + 1 WHERE id = ?`, [winner_id]);
+                  await fastify.db.run(`UPDATE users SET pvp_losses = pvp_losses + 1 WHERE id = ?`, [loser_id]);
+                  await fastify.db.run('COMMIT');
+                } catch (e) {
+                  try { await fastify.db.run('ROLLBACK'); } catch {}
+                  fastify.log.error({ e }, 'failed_to_insert_tournament_match_record');
+                }
+              }
+            }
+          }
+        } catch (e) {
+          fastify.log.error({ e }, 'tournament_match_record_check_failed');
+        }
+      }
 
       // If all matches in this round are done and next round isn't created, schedule it
       await tryScheduleNextRound(fastify, lobbyId);

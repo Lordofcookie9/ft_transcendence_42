@@ -1,5 +1,6 @@
 import { getUserInfo, logout } from '../users/userManagement.js';
 import { setContent, escapeHtml } from '../utility.js';
+import { route } from '../router.js';
 import { initPongGame } from "../pong/pong.js";
 import { updateChatBox, updateCounter } from './chat.js';
 
@@ -45,7 +46,7 @@ export function renderHome() {
       <a href="${profileHref}" onclick="route('${profileHref}')" class="fixed top-3 left-3 text-2xl font-semibold text-white hover:text-gray-300 z-50">${profileLabel}</a>
     </div>
 
-    <div class="flex flex-col items-center mt-6 space-y-10">
+  <div class="flex flex-col items-center mt-6 space-y-10">
       <h1 class="text-6xl font-bold">Transcendence</h1>
 
       ${userHtml} 
@@ -62,9 +63,10 @@ export function renderHome() {
         <div class="text-center">
           <h2 class="text-xl font-semibold mb-2">Tournament (up to 8 players)</h2>
           <button onclick="startTournamentSetup()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Local Tournament</button>
-          <button onclick="startOnlineTournamentSetup()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Online Tournament</button>
+          <button onclick="route('/tournament-online-list')" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Online Tournament</button>
         </div>
       </div>
+      <div id="active-tournament-slot" class="mt-4"></div>
     </div>
   `);
 
@@ -93,6 +95,32 @@ export function renderHome() {
   updateChatBox();
   setInterval(updateChatBox, 3000);
   updateCounter(); // harmless if the element isn't present
+
+  // Inject a "Return to Lobby" button if user has an active online tournament
+  (async () => {
+    let lobbyId: string | null = null;
+    try { lobbyId = localStorage.getItem('tourn.lobby'); } catch {}
+    if (!lobbyId) return;
+    try {
+      const res = await fetch(`/api/tournament/${encodeURIComponent(lobbyId)}`, { credentials: 'include' });
+      if (!res.ok) return; // silently ignore
+      const snap = await res.json();
+      if (!snap?.ok) return;
+      const myId = Number(localStorage.getItem('userId') || '0');
+      const participant = snap.participants?.some((p:any)=> Number(p.user_id) === myId);
+      if (!participant) return; // user not in this lobby anymore
+      if (snap.lobby.status === 'finished' || snap.lobby.status === 'cancelled') return; // nothing to return to
+      const slot = document.getElementById('active-tournament-slot');
+      if (!slot) return;
+      slot.innerHTML = `
+        <button id="return-tourn-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded shadow relative">
+          Return to Tournament Lobby #${escapeHtml(String(snap.lobby.id))}
+        </button>`;
+      document.getElementById('return-tourn-btn')?.addEventListener('click', () => {
+        route(`/tournament-online?lobby=${encodeURIComponent(String(snap.lobby.id))}`);
+      });
+    } catch {}
+  })();
 }
 
 // --- API Helpers ---
@@ -174,7 +202,10 @@ export async function renderLocal1v1() {
       <h1 class="text-3xl font-bold mb-4">Local 1v1</h1>
 
       <div class="flex justify-between items-center max-w-6xl mx-auto mb-4 px-8 text-xl font-semibold text-white">
-        <div id="player1-info" class="text-left w-1/3">${escapeHtml(leftName)}: ${escapeHtml(s1)}</div>
+        <div id="player1-info" class="text-left w-1/3">
+          <span id="p1-name-text">${escapeHtml(leftName)}</span>
+          <span class="ml-2" id="p1-score-label">: ${escapeHtml(s1)}</span>
+        </div>
         <button id="replay-btn" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded">Replay</button>
         <div id="player2-info" class="text-right w-1/3">${escapeHtml(rightName)}: ${escapeHtml(s2)}</div>
       </div>
@@ -210,6 +241,46 @@ export async function renderLocal1v1() {
 
   // Explicitly mark tournament UI inactive when in 1v1
   try { (window as any).tournament && ((window as any).tournament.uiActive = false); } catch {}
+
+  // Inline name editing removed: name now fixed from setup/localStorage
+}
+
+// Pre-game setup page to collect opponent name without a popup
+export function renderLocalSetup1v1() {
+  const defaultOpponent = localStorage.getItem('lastLocalOpponent') || 'Player 1';
+  const me = localStorage.getItem('display_name') || localStorage.getItem('alias') || 'Player 2';
+  setContent(`
+    <div class="max-w-md mx-auto mt-16 p-6 bg-gray-800 rounded-lg shadow">
+      <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white text-sm">← Back</a>
+      <h1 class="text-2xl font-bold mb-4 text-center">Local Match Setup</h1>
+      <form id="local-setup-form" class="space-y-4">
+        <div>
+          <label class="block text-sm mb-1">Opponent (Left Paddle)</label>
+          <input id="opponent-name" type="text" value="${escapeHtml(defaultOpponent)}" maxlength="30" class="w-full px-3 py-2 rounded text-black" required />
+          <p class="text-xs text-gray-400 mt-1">You will appear as: <strong>${escapeHtml(me)}</strong></p>
+        </div>
+        <div class="flex justify-end gap-2">
+          <button type="button" id="cancel-setup" class="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded text-white">Cancel</button>
+          <button type="submit" class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white">Start Game</button>
+        </div>
+      </form>
+    </div>
+  `);
+
+  document.getElementById('cancel-setup')?.addEventListener('click', () => route('/home'));
+  document.getElementById('local-setup-form')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = document.getElementById('opponent-name') as HTMLInputElement | null;
+    const val = (input?.value || '').trim();
+    if (!val) { input?.focus(); return; }
+    localStorage.setItem('p1', val);
+    localStorage.setItem('lastLocalOpponent', val);
+    const meName = localStorage.getItem('display_name') || localStorage.getItem('alias') || 'Player 2';
+    localStorage.setItem('p2', meName);
+    localStorage.setItem('p1Score','0');
+    localStorage.setItem('p2Score','0');
+    route('/local');
+  });
 }
 
 export async function renderLocalVsAI() {
@@ -640,63 +711,4 @@ export async function renderPrivate1v1() {
   updateNameplates();
 }
 
-declare global { interface Window { startOnlineTournamentSetup?: () => void; } }
-
-window.startOnlineTournamentSetup = async function startOnlineTournamentSetup() {
-  // Ask for size (3–8)
-  let numStr = prompt('How many players (3–8)?');
-  if (numStr === null) return;
-  let size = parseInt(numStr, 10);
-  while (!Number.isInteger(size) || size < 3 || size > 8) {
-    numStr = prompt('Please enter a valid number between 3 and 8:');
-    if (numStr === null) return;
-    size = parseInt(numStr, 10);
-  }
-
-  // Alias mode
-  const useUsername = confirm('Use your username as your tournament alias? Click "Cancel" to type a custom alias.');
-  let alias_mode: 'username' | 'custom' = useUsername ? 'username' : 'custom';
-  let alias: string | undefined;
-  if (alias_mode === 'custom') {
-    let a = prompt('Enter your alias (1–40 chars):');
-    if (a === null) return;
-    a = a.trim().slice(0, 40);
-    while (!a) {
-      a = prompt('Alias required (1–40 chars):') || '';
-      if (a === null) return;
-      a = a.trim().slice(0, 40);
-    }
-    alias = a;
-  }
-
-  // Create lobby
-  let lobbyId: number | null = null;
-  try {
-    const res = await fetch('/api/tournament', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ size, alias_mode, alias })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data?.lobby_id) throw new Error(data?.error || 'Failed to create tournament');
-    lobbyId = data.lobby_id;
-  } catch (err: any) {
-    alert(err?.message || 'Failed to create tournament.');
-    return;
-  }
-
-  // Announce invite in public chat (host shares lobby id)
-  try {
-    const msg = `<(tournament):${lobbyId}>`;
-    await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ message: msg })
-    });
-  } catch {}
-
-  // Go to lobby page
-  (window as any).route?.(`/tournament-online?lobby=${encodeURIComponent(String(lobbyId))}`);
-};
+// (Removed prompt-based startOnlineTournamentSetup in favor of dedicated setup page)

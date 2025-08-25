@@ -150,11 +150,12 @@ export async function renderOnlineTournamentLobby() {
       <h1 class="text-3xl font-bold">Online Tournament Lobby</h1>
       <div id="winner-banner"></div>
       <div id="lobby-info" class="text-white"></div>
-      <div class="flex items-center gap-3 items-end">
+  <div id="host-controls-bar" class="flex items-center gap-3 items-end">
         <div class="flex-1 text-sm text-gray-400" id="host-note"></div>
         <button id="start-btn" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded disabled:opacity-50" disabled>Start tournament</button>
       </div>
-      <div class="text-sm text-gray-400">Copy & paste this token in chat to invite: <code class="bg-gray-800 px-2 py-0.5 rounded">&lt;(tournament):${lobbyId}&gt;</code></div>
+  <div id="progress-msg" class="hidden text-sm text-amber-300">Tournament in progress…</div>
+  <div id="invite-token" class="text-sm text-gray-400">Copy & paste this token in chat to invite: <code class="bg-gray-800 px-2 py-0.5 rounded">&lt;(tournament):${lobbyId}&gt;</code></div>
       <div id="participants" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3"></div>
     </div>
   `);
@@ -165,10 +166,16 @@ export async function renderOnlineTournamentLobby() {
       const res = await fetch(`/api/tournament/${lobbyId}/start`, { method:'POST', credentials:'include' });
       const data = await res.json().catch(()=>({}));
       if (!res.ok) throw new Error(data?.error || 'Failed to start');
-      alert('Tournament started!');
-      await draw(true);
+  // Inline feedback instead of blocking alert popup
+  const note = document.getElementById('host-note');
+  if (note) note.textContent = 'Seeding bracket…';
+  // Force a redraw (with refresh) so bracket appears
+  await draw(true);
+  if (note) note.textContent = 'Bracket seeded. Good luck!';
     } catch (err:any) {
-      alert(err?.message || 'Failed to start tournament');
+  // Non-blocking inline error (avoid native alert)
+  const note = document.getElementById('host-note');
+  if (note) note.textContent = (err?.message || 'Failed to start tournament');
     }
   });
 
@@ -206,7 +213,21 @@ export async function renderOnlineTournamentLobby() {
     const list = document.getElementById('participants');
     const startBtn = document.getElementById('start-btn') as HTMLButtonElement | null;
     const note = document.getElementById('host-note') as HTMLDivElement | null;
+  const hostBar = document.getElementById('host-controls-bar');
+  const invite = document.getElementById('invite-token');
+  const progressMsg = document.getElementById('progress-msg');
     if (!info || !list || !snap || !snap.ok) return;
+
+    // Persist lobby membership for Home page rejoin button
+    try {
+      const myIdPersist = Number(localStorage.getItem('userId') || '0');
+      const amParticipant = snap.participants?.some(p => Number(p.user_id) === myIdPersist);
+      if (amParticipant && (snap.lobby.status === 'waiting' || snap.lobby.status === 'started')) {
+        localStorage.setItem('tourn.lobby', String(snap.lobby.id));
+      } else if (snap.lobby.status === 'finished' || snap.lobby.status === 'cancelled' || !amParticipant) {
+        localStorage.removeItem('tourn.lobby');
+      }
+    } catch {}
 
     renderWinnerBanner(snap);
 
@@ -228,9 +249,22 @@ export async function renderOnlineTournamentLobby() {
       else note.textContent = 'Ready to start.';
     }
 
-    if (startBtn) {
-      startBtn.style.display = iAmHost ? '' : 'none';
-      startBtn.disabled = !canStart;
+    if (snap.lobby.status === 'waiting') {
+      if (startBtn) {
+        startBtn.style.display = iAmHost ? '' : 'none';
+        startBtn.disabled = !canStart;
+      }
+      if (hostBar) hostBar.classList.remove('hidden');
+      if (invite) invite.classList.remove('hidden');
+      if (progressMsg) progressMsg.classList.add('hidden');
+    } else {
+      // Hide controls & invite once started / finished / cancelled
+      if (hostBar) hostBar.classList.add('hidden');
+      if (invite) invite.classList.add('hidden');
+      if (progressMsg) {
+        if (snap.lobby.status === 'started') progressMsg.classList.remove('hidden');
+        else progressMsg.classList.add('hidden');
+      }
     }
 
     list.innerHTML = snap.participants.map(p => `

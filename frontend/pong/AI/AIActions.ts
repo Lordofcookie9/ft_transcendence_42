@@ -6,7 +6,7 @@
 /*   By: rrichard <rrichard@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/11 10:34:18 by rrichard          #+#    #+#             */
-/*   Updated: 2025/08/19 17:52:16 by rrichard         ###   ########.fr       */
+/*   Updated: 2025/08/24 10:35:22 by rrichard         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -39,3 +39,4 @@ export const anticipateWithInvisibleBall = new ActionNode(ctx =>
 	ctx.lastTargetY = Math.max(ctx.minWallY, Math.min(targetY, ctx.maxWallY));
 	return (Status.SUCCESS);
 });
+					

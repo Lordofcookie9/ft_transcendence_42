@@ -167,6 +167,66 @@ export async function renderOnlineTournamentRoom() {
   let engineStarted = false;
   let postedComplete = false;
 
+  // Host-only game start logic (moved earlier so we can optionally auto-start)
+  const startHostGame = () => {
+    if (engineStarted) return;
+    engineStarted = true;
+    if (hostControls) hostControls.remove();
+
+    try { localStorage.setItem('p1', hostAlias); } catch {}
+    try {
+      if (guestJoined) localStorage.setItem('p2', guestAlias);
+      localStorage.setItem('p1Score', '0');
+      localStorage.setItem('p2Score', '0');
+    } catch {}
+
+    initPongGame(container as HTMLElement, async () => {
+      try { localStorage.removeItem('game.inProgress'); } catch {}
+      const hostScore = parseInt(localStorage.getItem('p1Score') || '0', 10);
+      const guestScore = parseInt(localStorage.getItem('p2Score') || '0', 10);
+      let winnerAlias = '—';
+      if (Number.isFinite(hostScore) && Number.isFinite(guestScore)) {
+        winnerAlias = hostScore > guestScore ? hostAlias : guestAlias;
+      }
+      let winner_slot; // map to bracket p1/p2
+      if (Number.isFinite(hostScore) && Number.isFinite(guestScore) && hostScore !== guestScore) {
+        const hostWon = hostScore > guestScore;
+        winner_slot = hostWon
+          ? (bracketP1Side === 'host' ? 'p1' : 'p2')
+          : (bracketP1Side === 'guest' ? 'p1' : 'p2');
+      }
+      let p1_score; let p2_score;
+      if (bracketP1Side === 'host') { p1_score = hostScore; p2_score = guestScore; }
+      else { p1_score = guestScore; p2_score = hostScore; }
+      const detail = winnerAlias !== '—' ? { winner: winnerAlias } : {};
+      if (ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'gameover', detail })); } catch {}
+      }
+      if (!postedComplete) {
+        postedComplete = true;
+        try {
+          await fetch(`/api/tournament/${lobbyId}/match/${matchId}/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              winner_slot,
+              host_score: hostScore,
+              guest_score: guestScore,
+              p1_score, p2_score
+            }),
+          });
+        } catch {}
+      }
+      showEndOverlay(detail);
+    }, {
+      control: 'left',
+      netMode: 'host',
+      emitState: (state: any) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'state', state })); },
+      onRemoteInput: (register: any) => { pushGuestInputToEngine = register; },
+    });
+  };
+
   // Show/enable Start button only for host
   if (role === 'left' && hostControls && btnStart) {
     hostControls.classList.remove('hidden');
@@ -196,6 +256,10 @@ export async function renderOnlineTournamentRoom() {
         if (startHint) startHint.textContent = 'Opponent is here. You can start!';
         // Tell engine (if started) names
         try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { right: guestAlias } })); } catch {}
+        // Auto-start safeguard: if host forgets to click Start, begin automatically shortly after both present
+        if (!engineStarted) {
+          setTimeout(() => { if (!engineStarted && guestJoined) startHostGame(); }, 1200);
+        }
       } else {
         localStorage.setItem('p1', String(msg.alias));
         hostAlias = String(msg.alias);
@@ -233,80 +297,6 @@ export async function renderOnlineTournamentRoom() {
     }
   });
 
-  // Host-only: start once guest joined AND button clicked
-  const startHostGame = () => {
-    if (engineStarted) return;
-    engineStarted = true;
-    // remove our start UI
-    if (hostControls) hostControls.remove();
-
-    try { localStorage.setItem('p1', hostAlias); } catch {}
-    try {
-      if (guestJoined) localStorage.setItem('p2', guestAlias);
-      localStorage.setItem('p1Score', '0');
-      localStorage.setItem('p2Score', '0');
-    } catch {}
-
-    initPongGame(container as HTMLElement, async () => {
-      // Host end-of-match handler: compute winner, POST /complete, notify guest, overlay
-      try { localStorage.removeItem('game.inProgress'); } catch {}
-      const hostScore = parseInt(localStorage.getItem('p1Score') || '0', 10);
-      const guestScore = parseInt(localStorage.getItem('p2Score') || '0', 10);
-
-      // compute winner text for overlay
-      let winnerAlias = '—';
-      if (Number.isFinite(hostScore) && Number.isFinite(guestScore)) {
-        winnerAlias = hostScore > guestScore ? hostAlias : guestAlias;
-      }
-
-      // Derive winner_slot and p1/p2 scores relative to bracket
-      let winner_slot: 'p1' | 'p2' | undefined;
-      if (Number.isFinite(hostScore) && Number.isFinite(guestScore) && hostScore !== guestScore) {
-        const hostWon = hostScore > guestScore;
-        winner_slot = hostWon
-          ? (bracketP1Side === 'host' ? 'p1' : 'p2')
-          : (bracketP1Side === 'guest' ? 'p1' : 'p2');
-      }
-      let p1_score: number | undefined;
-      let p2_score: number | undefined;
-      if (bracketP1Side === 'host') { p1_score = hostScore; p2_score = guestScore; }
-      else { p1_score = guestScore; p2_score = hostScore; }
-
-      // Notify guest
-      const detail = winnerAlias !== '—' ? { winner: winnerAlias } : {};
-      if (ws.readyState === WebSocket.OPEN) {
-        try { ws.send(JSON.stringify({ type: 'gameover', detail })); } catch {}
-      }
-
-      // Post completion exactly once
-      if (!postedComplete) {
-        postedComplete = true;
-        try {
-          await fetch(`/api/tournament/${lobbyId}/match/${matchId}/complete`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              winner_slot,
-              host_score: hostScore,
-              guest_score: guestScore,
-              p1_score, p2_score
-            }),
-          });
-        } catch {}
-      }
-
-      // Show local overlay with Back to lobby
-      showEndOverlay(detail);
-    }, {
-      control: 'left',
-      netMode: 'host',
-      emitState: (state: any) => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'state', state }));
-      },
-      onRemoteInput: (register: any) => { pushGuestInputToEngine = register; },
-    });
-  };
 
   if (role === 'left' && btnStart) {
     btnStart.addEventListener('click', () => {

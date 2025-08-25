@@ -1,5 +1,6 @@
 //FRONTEND main Typescript Tailwind
 import { renderUserList, renderUserProfile } from './users/userManagement.js';
+import { uiPrompt, uiAlert } from './ui/modal.js';
 import { renderEntryPage, renderHome, updateCounter, updateChatBox } from './pages/index.js'
 import { route, handleLocation } from './router.js';
 
@@ -41,15 +42,15 @@ window.addEventListener('popstate', () => {
 	route("/home");
 };
 
-(window as any).startLocalGame = () => {	const me = localStorage.getItem("display_name") || localStorage.getItem("alias") || "Player 1";
-	const opponent = prompt("Enter opponent alias (left player):");
-	if (!opponent || opponent.trim().length === 0) return;
+(window as any).startLocalGame = () => { route('/local-setup'); };
 
-	localStorage.setItem("p1", opponent.trim()); // left = opponent
-	localStorage.setItem("p2", me);              // right = you
-	localStorage.setItem("p1Score", "0");
-	localStorage.setItem("p2Score", "0");
-	route("/local");
+// Optional helper to rename opponent before a match (can be bound to a UI button)
+(window as any).renameLocalOpponent = async () => {
+  const current = localStorage.getItem('lastLocalOpponent') || localStorage.getItem('p1') || 'Player 1';
+  const updated = await uiPrompt('Enter new opponent alias:', { title: 'Rename Opponent', defaultValue: current, validate: (v)=> v.length>0 && v.length<=30 ? true : '1-30 chars required' });
+  if (updated === null) return; // cancelled
+  localStorage.setItem('lastLocalOpponent', updated.trim());
+  await uiAlert('Opponent alias updated. Start a new local game to apply.');
 };
 
 (window as any).incrementCounter = async function () {
@@ -455,31 +456,7 @@ window.addEventListener('pong:gameend', (ev: any) => {
 };
 
 // Setup flow
-(window as any).startTournamentSetup = async function () {
-  try { localStorage.removeItem('game.ai'); } catch {}
-  let numStr = prompt('Enter number of participants (3–8):');
-  if (numStr === null) return;
-  let num = parseInt(numStr, 10);
-  while (isNaN(num) || num < 3 || num > 8) {
-    numStr = prompt('Please enter a valid number between 3 and 8:');
-    if (numStr === null) return;
-    num = parseInt(numStr, 10);
-  }
-  const aliases: string[] = [];
-  for (let i=0;i<num;i++){
-    let a: string|null;
-    do { a = prompt(`Enter alias for player ${i+1}:`); if (a === null) return; a = a.trim(); } while (!a);
-    aliases.push(a);
-  }
-  localStorage.setItem('tournament.participants', JSON.stringify(aliases));
-  const message = `🏓 A tournament is about to begin with ${num} players: ${aliases.join(', ')}. Good luck!`;
-  try {
-    const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ message }) });
-    if (!res.ok) console.warn('Could not post chat announcement.');
-  } catch {}
-  (window as any).tournament.start(aliases);
-  route('/tournament');
-};
+(window as any).startTournamentSetup = () => { route('/tournament-setup'); };
 
 
 // Hook: pages.ts calls this when a local game ends

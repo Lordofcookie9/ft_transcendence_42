@@ -119,11 +119,17 @@ export function startPresenceHeartbeat() {
   // Only mark offline when the LAST tab closes
   const onClose = () => {
     const remaining = removeThisTab();
+    if (remaining === 0) {
+      // last tab closing -> mark offline immediately
+      sendOffline();
+    }
   };
 
   // Use pagehide (fires on tab close and mobile background), plus unload fallback
   window.addEventListener('pagehide', onClose, { capture: true });
   window.addEventListener('unload', onClose, { capture: true });
+  // Some browsers fire beforeunload but not unload in fast closes; add redundancy
+  window.addEventListener('beforeunload', onClose, { capture: true });
 
   // Don’t mark offline on simple tab switches; we no longer do that on visibilitychange
 }

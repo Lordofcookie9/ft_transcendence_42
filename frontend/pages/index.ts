@@ -1,7 +1,11 @@
 export { renderEntryPage } from './entry.js';
-export { renderHome, renderLocal1v1, renderLocalVsAI, renderPrivate1v1, sendPrivateMessage } from './home.js';
+export { renderHome, renderLocal1v1, renderLocalSetup1v1, renderLocalVsAI, renderPrivate1v1, sendPrivateMessage } from './home.js';
 export { renderGame } from './game.js';
 export { renderMain } from './main.js';
 export { renderChat, updateChatBox, updateCounter, renderTournament } from './chat.js';
 export { renderOnlineTournamentLobby } from './tournamentOnline.js';
 export { renderOnlineTournamentRoom } from './tournamentRoom.js';
+export { renderLocalTournamentSetup } from './tournamentSetup.js';
+export { renderOnlineTournamentSetup } from './onlineTournamentSetup.js';
+export { renderOnlineTournamentJoin } from './onlineTournamentJoin.js';
+export { renderOnlineTournamentList } from './onlineTournamentList.js';

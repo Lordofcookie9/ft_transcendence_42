@@ -1,193 +1,71 @@
 import { sendPrivateMessage } from '../pages/pages.js';
+import { uiAlert, uiConfirm, uiPrompt } from '../ui/modal.js';
 import { setContent, formatDbDateTime, startPresenceHeartbeat } from '../utility.js';
 import { route } from '../router.js';
-
-
 import { renderEntryPage } from '../pages/pages.js';
 
-
+// Restored original (simplified) registration renderer
 export async function renderRegister() {
 	setContent(`
-		<h1>Create Account</h1>
-		<form id="register-form" class="flex flex-col gap-2 mt-4">
-			<input name="display_name" type="text" placeholder="Public Name" required minlength="1" class="p-2 border text-black" />
-			<input name="email" type="email" placeholder="Email" required class="p-2 border text-black" />
-			<input name="password" type="password" placeholder="Password" required minlength="8" pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[@$!%*?&amp;]).{8,}$"
- 				title="Must contain at least 8 characters, one uppercase, one lowercase, one number, and one special character '@$!%*?'" class="p-2 border text-black" />
-			<div class="flex items-center gap-2">
-			  <input id="avatar" name="avatar" type="file" accept="image/*" class="p-2 border text-black" />
-			  <label for="avatar" class="text-sm text-gray-300">Upload profile picture</label>
+	<div class="max-w-md mx-auto mt-10 bg-gray-800/70 backdrop-blur rounded-xl shadow-lg border border-gray-700 p-6 text-white">
+		<h1 class="text-2xl font-bold mb-4 text-center">Create Account</h1>
+		<form id="register-form" class="flex flex-col gap-4">
+			<input name="display_name" type="text" placeholder="Public name" required minlength="1" class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+			<input name="email" type="email" placeholder="Email" required class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+			<input name="password" type="password" placeholder="Password" required minlength="8" pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[@$!%*?&amp;]).{8,}$" title="Must contain at least 8 characters, one uppercase, one lowercase, one number, and one special character '@$!%*?'" class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+			<div class="flex flex-col gap-2">
+				<div class="flex items-center gap-3 flex-wrap">
+					<input id="avatar" name="avatar" type="file" accept="image/*" class="hidden" />
+					<label for="avatar" class="cursor-pointer inline-flex items-center gap-2 bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm">
+						<span id="avatar-label-text">Choose avatar</span>
+					</label>
+					<span class="text-xs text-gray-400">(optional)</span>
+				</div>
+				<div id="avatar-filename" class="text-xs text-gray-400 line-clamp-1"></div>
 			</div>
-
-			<label class="flex items-center gap-2">
-				<input type="checkbox" id="enable-2fa" /> Enable 2FA
-			</label>
-
-			<div id="2fa-options" class="hidden flex-col gap-2 border p-2">
-				<label>
-					<input type="radio" name="twofa_method" value="email" /> Email
+			<div class="space-y-2">
+				<label class="flex items-center gap-2 text-sm">
+					<input type="checkbox" id="enable-2fa" class="accent-indigo-500" /> Enable 2FA
 				</label>
-				<label>
-					<input type="radio" name="twofa_method" value="app" /> Authenticator App
-				</label>
+				<div id="2fa-options" class="hidden flex-col gap-2 border border-gray-600 rounded p-3 bg-gray-900/60 text-sm">
+					<label class="flex items-center gap-2"><input type="radio" name="twofa_method" value="email" class="accent-indigo-500"/> Email</label>
+					<label class="flex items-center gap-2"><input type="radio" name="twofa_method" value="app" class="accent-indigo-500"/> Authenticator App</label>
+				</div>
 			</div>
-
-			<button type="submit" class="bg-green-600 text-white px-4 py-2">Register</button>
-
-			<div class="flex items-center my-6">
-				<div class="flex-grow h-px bg-gray-500"></div>
-				<span class="px-2 text-gray-400 text-sm">OR</span>
-				<div class="flex-grow h-px bg-gray-500"></div>
-			</div>
-
-			<div class="mt-2 flex flex-col gap-2">
-				<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-400 rounded px-4 py-2 hover:bg-gray-100 text-black bg-white">
-				<img src="/uploads/42_Logo.svg" alt="42" class="w-6 h-6" />
-				<span class="font-medium">Continue with 42</span>
-				</button>
-		</div>
-			</form>
-	`);
-
-	const form = document.getElementById('register-form') as HTMLFormElement;
-	const enable2FA = document.getElementById('enable-2fa') as HTMLInputElement;
-	const twoFAOptions = document.getElementById('2fa-options') as HTMLDivElement;
-	let twofaVerified :number = 0;
-	
-	enable2FA?.addEventListener('change', () => {
-		twoFAOptions.classList.toggle('hidden', !enable2FA.checked);
+			<button type="submit" class="mt-2 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white font-medium px-4 py-2 rounded">Register</button>
+		</form>
+	</div>`);
+	const form = document.getElementById('register-form') as HTMLFormElement | null;
+	const enable2FA = document.getElementById('enable-2fa') as HTMLInputElement | null;
+	const twoFAOptions = document.getElementById('2fa-options') as HTMLDivElement | null;
+	const avatarInput = document.getElementById('avatar') as HTMLInputElement | null;
+	const avatarFilename = document.getElementById('avatar-filename') as HTMLDivElement | null;
+	avatarInput?.addEventListener('change', () => {
+		if (avatarInput.files && avatarInput.files[0]) {
+			avatarFilename && (avatarFilename.textContent = avatarInput.files[0].name);
+		} else if (avatarFilename) {
+			avatarFilename.textContent = '';
+		}
 	});
-
+	let twofaVerified = 0;
+	enable2FA?.addEventListener('change', () => twoFAOptions?.classList.toggle('hidden', !enable2FA.checked));
 	form?.addEventListener('submit', async (e) => {
 		e.preventDefault();
-
-		const email = (form.querySelector('[name="email"]') as HTMLInputElement).value.trim();
-		const twofaMethod = enable2FA.checked ? 
-			(form.querySelector('[name="twofa_method"]:checked') as HTMLInputElement)?.value : null;
-
-		const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-		if (enable2FA.checked && !twofaMethod) {
-			alert('Please select a 2FA method.');
-			return;
-		}
-		
-		if (twofaMethod === 'email' && !emailPattern.test(email)) {
-			alert('Valid email required for Email 2FA.');
-			return;
-		}
-
-		if (twofaMethod === 'email') {
-			const res = await fetch('/api/2fa/send-code', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ twofaMethod, email }),
-			});
-
-			if (res.ok) {
-				const code = prompt(`Enter the code sent to your Email`);
-				if (code) {
-					const verifyRes = await fetch('/api/2fa/verify-code', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ twofaMethod, email, code}),
-					});
-					if (verifyRes.ok) {
-						alert('Contact verified!');
-						twofaVerified = 1;
-					} else {
-						alert('Verification failed. Please check your email address.');
-					}
-				} else {
-					alert('Your browser seems busy. Try later.');
-				}
-			} else {
-				alert('Error sending verification code. Try later.');
-			}
-		}
-		
-		if (twofaMethod === 'app') {
-			const setupRes = await fetch('/api/2fa/send-code', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ twofaMethod, email })
-			});
-		
-			if (setupRes.ok) {
-				const { qrCodeDataURL } = await setupRes.json();
-		
-				let qrWindow = window.open('', 'QR Code', 'width=500,height=600,resizable=yes');
-
-				if (qrWindow) {
-					qrWindow.document.open();
-					qrWindow.document.write(`<h3>Scan this in your Authenticator App</h3>`);
-					qrWindow.document.write(`<img src="${qrCodeDataURL}" />`);
-					qrWindow.document.close();
-					qrWindow.focus();
-				}
-
-				const code = prompt(`Enter the 6-digit code from your Authenticator App`);
-				if (code) {
-					const verifyRes = await fetch('/api/2fa/verify-code', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ twofaMethod, email, code }),
-					});
-					if (verifyRes.ok) {
-						alert('Authenticator set up successfully!');
-						twofaVerified = 1;
-					} else {
-						alert('Verification failed.');
-					}
-				}
-			} else {
-				alert('Error setting up Authenticator App. Try later.');
-			}
-		}
-
-		if (enable2FA.checked && twofaVerified !== 1) {
-			alert('Please complete 2FA verification before registering.');
-			return;
-		  }
-
 		const formData = new FormData(form);
-		if (enable2FA.checked) {
-			formData.set('enable_2fa', 'true');}
-		else {
-			formData.set('enable_2fa', 'false');}
-		// if (!enable2FA.checked){
-			
-		if (enable2FA.checked && twofaMethod) {
-			formData.set('twofa_method', twofaMethod);
-			formData.set('twofa_verified', String(twofaVerified));
-		  }
-
+		if (enable2FA?.checked) formData.set('enable_2fa', 'true'); else formData.set('enable_2fa', 'false');
 		try {
-			const res = await fetch('/api/register', {
-				method: 'POST',
-				body: formData
-			});
-
+			const res = await fetch('/api/register', { method: 'POST', body: formData });
 			if (res.ok) {
-				alert('Account created!');
 				const user = await res.json();
-				localStorage.setItem("userId", user.id);
-				localStorage.setItem("display_name", user.display_name);
+				localStorage.setItem('userId', user.id);
+				localStorage.setItem('display_name', user.display_name);
 				startPresenceHeartbeat();
-				await route('/profile');
+				route('/profile');
 			} else {
-				const msg = await res.text();
-				alert('Error: ' + msg);
+				uiAlert('Error: ' + (await res.text()));
 			}
-		} catch (err) {
-			console.error(err);
-			alert(err instanceof Error ? err.message : 'Network error');
-		}
-	})
-
-	document.getElementById("oauth")?.addEventListener("click", () => {
-		window.location.href = "/api/auth/42";
-	  });
+		} catch (err: any) { uiAlert(err?.message || 'Network error'); }
+	});
 }
 
 export function renderOauthSuccess() {
@@ -201,151 +79,36 @@ export function renderOauthSuccess() {
   }
   
 
-function renderProfileHTML(user: User) {
-	return `
-	<div class="flex justify-between items-start p-4">
-	  <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
-	</div>
-  
-	<div class="max-w-xl mx-auto mt-10 space-y-6">
-	  <div class="text-center space-y-2">
-		<img src="${user.avatar_url}" alt="Avatar" class="w-36 h-36 rounded-full mx-auto shadow object-cover" id="avatar-preview" />
-  
-		<form id="avatar-form" class="flex items-center justify-center space-x-2 mt-2">
-		  <input
-			id="avatar-upload"
-			name="avatar"
-			type="file"
-			accept="image/*"
-			class="hidden"
-		  />
-		  <label
-			for="avatar-upload"
-			class="cursor-pointer w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-400"
-			title="Change avatar"
-		  >
-			📁
-		  </label>
-		  <button
-			type="submit"
-			class="text-xs text-gray-600 bg-gray-100 rounded px-2 py-0.5 hover:bg-gray-200"
-		  >
-			Save
-		  </button>
-		</form>
-	  </div>
-  
-	  <h2 class="text-center text-white font-bold text-2xl">${user.display_name}</h2>
-  
-	  <div class="text-center max-w-xs mx-auto">
-		<form id="name-form" class="flex items-center space-x-2">
-		  <input
-			type="text"
-			name="display_name"
-			placeholder="Enter new name"
-			value=""
-			class="flex-grow p-1 border border-gray-300 rounded text-gray-600 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
-		  />
-		  <button
-			type="submit"
-			class="text-xs text-gray-700 bg-gray-100 rounded px-3 py-1 hover:bg-gray-200"
-			title="Save new name"
-		  >
-			Change name
-		  </button>
-		</form>
-	  </div>
-
-
-	  <div class="text-center max-w-xs mx-auto">
-		<form id="password-form" class="flex items-center space-x-2">
-		  <input type="password" name="password" placeholder="Enter new password"
-			required minlength="8"
-			class="flex-grow p-1 border border-gray-300 rounded text-gray-600 text-sm 
-			focus:outline-none focus:ring-1 focus:ring-blue-400"/>
-		  <button type="submit"
-			class="text-xs text-gray-700 bg-gray-100 rounded px-3 py-1 hover:bg-gray-200"
-			title="Set or change password">Set password</button>
-		</form>
-	  </div>
-  
-	  <div class="text-center max-w-xs mx-auto space-y-1">
-		<p class="text-sm text-gray-500">${user.email}</p>
-			<form id="email-form" class="flex items-center space-x-2 max-w-xs mx-auto">
-				<input type="email" name="email" placeholder="Enter new email" value="${user.email}" class="flex-grow p-1 border border-gray-300 rounded text-gray-600 text-sm" />
-				<button type="submit" class="text-xs text-gray-700 bg-gray-100 rounded px-3 py-1 hover:bg-gray-200">Change email</button>
-			</form>
-
-		<p class="text-sm text-gray-500">
-		${user.twofa_enabled 
-		? `You are using 2FA ${user.twofa_method === 'email' ? 'email authentification' : 'Authenticator App'}` 
-		: 'You are not using 2FA authentification'}
-		</p>
-	<div class="max-w-xs mx-auto border p-3 rounded bg-gray-50  text-gray-700">
-
-		<label class="flex items-center gap-2 mb-2">
-			<input type="checkbox" id="enable-2fa" ${user.twofa_enabled ? "checked" : ""}/>
-			<span>Enable 2FA</span>
-			${user.twofa_verified ? `<span class="text-green-600 text-sm">✅ Verified</span>` : ""}
-		</label>
-		<div id="2fa-options" class="${user.twofa_enabled ? "" : "hidden"} flex flex-col gap-2">
-			<label>
-				<input type="radio" name="twofa_method" value="email" ${user.twofa_method === 'email' ? "checked" : ""}/> Email
-				<input type="radio" name="twofa_method" value="app" ${user.twofa_method === 'app' ? "checked" : ""}/> Authenticator App
-			</label>
-			<button id="save-2fa" class="mt-2 bg-blue-500 text-white px-3 py-1 rounded text-sm">Save 2FA Settings</button>
-		</div>
-	</div>
-
-
-		<span class="inline-block text-xs px-2 py-1 rounded-full ${
-		  user.account_status === 'online'
-			? 'bg-green-200 text-green-800'
-			: user.account_status === 'offline'
-			? 'bg-gray-200 text-gray-600'
-			: 'bg-red-200 text-red-700'
-		}">${user.account_status}</span>
-  
-		<div class="text-sm text-gray-600">
-		  <p><strong>Joined: </strong> ${new Date(user.created_at).toLocaleString()}</p>
-		  <p><strong>Last Online: </strong> Online now</p>
-		</div>
-  
-		<button id="logout" class="bg-gray-400 text-white px-4 py-2 rounded">Logout</button>
-		<button id="delete-profile-btn" class="bg-gray-400 text-white px-4 py-2 rounded">Delete Account</button>
-  
-		<div class="mt-10">
-		  <button onclick="route('/users')" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded">
-			Find New Friends
-		  </button>
-		  <div id="users-list" class="mt-6 max-w-2xl mx-auto"></div>
-		</div>
-
-		<div class="text-center mt-4">
-        <a href="/profile/${user.id}" 
-           onclick="route('/profile/${user.id}'); return false;" 
-           class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
-           View your Public Page
-        </a>
-      	</div>
-		
-		<br/>
-
-		<button onclick="route('/home')" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded">
-			Go Play Game
-		</button>
-	  </div>
-	</div>
-  `
-}
 
 function setProfileEvents(user: User) {
 
 	console.log('in set profile', user);
 
-	document.getElementById('logout')?.addEventListener('click', logout);
+		document.getElementById('logout')?.addEventListener('click', logout);
+		// Edit mode toggling
+		const toggle = document.getElementById('edit-profile-toggle');
+		const cancel = document.getElementById('edit-profile-cancel');
+		const editPanel = document.getElementById('profile-edit');
+		const roPanel = document.getElementById('profile-readonly');
+		const nameHeading = document.getElementById('profile-display-name');
+		function enterEdit() {
+			editPanel?.classList.remove('hidden');
+			roPanel?.classList.add('hidden');
+			toggle?.classList.add('hidden');
+			cancel?.classList.remove('hidden');
+		}
+		function leaveEdit(updatedName?: string) {
+			editPanel?.classList.add('hidden');
+			roPanel?.classList.remove('hidden');
+			toggle?.classList.remove('hidden');
+			cancel?.classList.add('hidden');
+			if (updatedName && nameHeading) nameHeading.textContent = updatedName;
+		}
+		toggle?.addEventListener('click', () => enterEdit());
+		cancel?.addEventListener('click', () => leaveEdit());
 	document.getElementById('delete-profile-btn')?.addEventListener('click', async () => {
-		  if (!confirm('Are you sure you want to delete your profile?')) return;
+		  const really = await uiConfirm('Are you sure you want to delete your profile? This cannot be undone.','Delete Account');
+		  if (!really) return;
   
 		  const res = await fetch('/api/delete-account', {
 		  method: 'DELETE',
@@ -369,47 +132,62 @@ function setProfileEvents(user: User) {
 		  alert('Error: ' + err);
 		  }
 	  });
-  
-	document.getElementById('name-form')?.addEventListener('submit', async (e) => {
-		e.preventDefault();
-  
-	  const form = e.target as HTMLFormElement;
-	  const newName = form.display_name.value.trim();
-	  const originalName = localStorage.getItem("display_name")?.trim();
-  
-	  if (!newName) {
-		  alert("Display name cannot be empty.");
-		  return;
-	  }
-  
-	  if (newName === originalName) {
-		  alert("Nothing changed.");
-		  return;
-	  }
-  
-	  try {const res = await fetch('/api/name', {
-		  method: 'PATCH',
-		  credentials: 'include',
-		  headers: {
-			  'Content-Type': 'application/json',
-		  },
-		  body: JSON.stringify({ display_name: newName })
-		  });
-  
+
+	document.getElementById('anonymize-account-btn')?.addEventListener('click', async () => {
+		if (user.anonymized) return uiAlert('Already anonymized.');
+		const ok = await uiConfirm('This will irreversibly anonymize your account (you will be logged out). Continue?','Anonymize Account');
+		if (!ok) return;
+		try {
+		  const res = await fetch('/api/account/anonymize', { method: 'POST', credentials: 'include' });
 		  if (res.ok) {
-		  const result = await res.json();
-		  localStorage.setItem('display_name', result.user.display_name);
-		  alert('Name updated!');
-		  renderProfile();
+			await uiAlert('Account anonymized. You can now log in again if needed.');
+			localStorage.clear();
+			route('/');
 		  } else {
-		  const msg = await res.text();
-		  alert('Error: ' + msg);
+			await uiAlert('Failed: ' + (await res.text()));
 		  }
-	  } catch (err) {
-		  console.error(err);
-		  alert("Something went wrong while updating your profile.");
-	  }
-	  });
+		} catch (e) {
+		  console.error(e);
+		  uiAlert('Network error');
+		}
+	});
+  
+	// Unified profile info form (name + email)
+	const profileInfoForm = document.getElementById('profile-info-form') as HTMLFormElement | null;
+	profileInfoForm?.addEventListener('submit', async (e) => {
+		e.preventDefault();
+		const form = e.target as HTMLFormElement;
+		const newName = (form.display_name?.value || '').trim();
+		const newEmail = (form.email?.value || '').trim();
+		const origName = localStorage.getItem('display_name')?.trim() || user.display_name;
+		const origEmail = user.email;
+		const tasks: Promise<Response>[] = [];
+		if (newName && newName !== origName) {
+			tasks.push(fetch('/api/name', { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ display_name: newName }) }));
+		}
+		if (newEmail && newEmail !== origEmail) {
+			tasks.push(fetch('/api/email', { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: newEmail }) }));
+		}
+		if (!tasks.length) {
+			alert('Nothing changed.');
+			return;
+		}
+		try {
+			const results = await Promise.all(tasks);
+			const failed = results.find(r => !r.ok);
+			if (failed) {
+				const msg = await failed.text();
+				alert('Update failed: ' + msg);
+				return;
+			}
+			if (newName && newName !== origName) localStorage.setItem('display_name', newName);
+			alert('Profile updated.');
+			renderProfile();
+		} catch (err) {
+			console.error(err);
+			alert('Network error.');
+		}
+	});
 
 	document.getElementById('password-form')?.addEventListener('submit', async (e) => {
 		e.preventDefault();
@@ -480,39 +258,7 @@ function setProfileEvents(user: User) {
 	  }
 	});
 
-	// Email update
-	document.getElementById('email-form')?.addEventListener('submit', async (e) => {
-			e.preventDefault();
-			const newEmail = (e.target as HTMLFormElement).email.value.trim();
-			if (!newEmail) return alert("Email cannot be empty");
-	
-			const res = await fetch('/api/email', {
-				method: 'PATCH',
-				credentials: 'include',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email: newEmail })
-			});
-			if (res.ok) {
-				if (user.twofa_method === 'email') {
-					alert('Email changed, please login again.');
-				try {
-				if (navigator.sendBeacon) {
-					const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
-					navigator.sendBeacon('/api/presence/offline', blob);
-				} else {
-					await fetch('/api/presence/offline', { method: 'POST', credentials: 'include' });
-				}
-				} catch {}
-				localStorage.clear();
-				route('/login');
-				}
-				else {
-					alert('Email updated!');
-					renderProfile();}
-			} else {
-				alert(await res.text());
-			}
-		});
+	// (Email form removed; handled by unified form)
 	
 	// 2fa update
 	const enable2FA = document.getElementById('enable-2fa') as HTMLInputElement;
@@ -639,12 +385,79 @@ function setProfileEvents(user: User) {
 });
 }
 
+// New profile HTML with toggleable edit panel
+function renderProfileHTML(user: User): string {
+	const joined = new Date(user.created_at).toLocaleString();
+	const lastOnline = new Date(user.last_online).toLocaleString();
+	const statusBubble = `<span class="inline-block w-3 h-3 rounded-full ${user.account_status === 'online' ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}"></span>`;
+	return `
+	<div class="max-w-3xl mx-auto mt-10 text-white">
+		<div class="flex justify-between items-start mb-4">
+			<button id="edit-profile-toggle" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded text-sm">Edit</button>
+			<button id="edit-profile-cancel" class="hidden bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm">Cancel</button>
+		</div>
+		<div id="profile-readonly" class="space-y-6">
+			<div class="bg-gray-800/70 backdrop-blur border border-gray-700 rounded-xl p-6 shadow-lg">
+				<div class="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+					<img id="avatar-preview" src="${user.avatar_url}" class="w-32 h-32 rounded-full object-cover border-4 border-gray-700" />
+					<div class="flex-1 space-y-2 text-center sm:text-left">
+						<h1 id="profile-display-name" class="text-3xl font-bold flex items-center gap-2 justify-center sm:justify-start">${statusBubble}<span>${user.display_name}</span></h1>
+						<div class="text-sm text-gray-400 flex flex-col sm:flex-row sm:gap-4">
+							<span>Joined: ${joined}</span>
+							<span>Last Online: ${lastOnline}</span>
+						</div>
+					</div>
+				</div>
+				<div class="flex flex-wrap gap-2 justify-center sm:justify-end pt-4">
+					<button id="anonymize-account-btn" class="bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white px-3 py-1 rounded text-sm" ${user.anonymized ? 'disabled title="Already anonymized"' : ''}>${user.anonymized ? 'Account Anonymized' : 'Anonymize Account'}</button>
+					<button id="delete-profile-btn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">Delete Account</button>
+					<button id="logout" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded text-sm">Logout</button>
+				</div>
+			</div>
+			<div class="flex flex-wrap gap-4 justify-center">
+				<button onclick="route('/users')" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded">Find Friends</button>
+				<button onclick="route('/home')" class="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded">Play Game</button>
+				<a href="/profile/${user.id}" onclick="route('/profile/${user.id}'); return false;" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded">Public Page</a>
+			</div>
+		</div>
+		<div id="profile-edit" class="hidden space-y-8 bg-gray-800/70 backdrop-blur border border-gray-700 rounded-xl p-6 shadow-lg">
+			<form id="avatar-form" class="flex items-center justify-center gap-3 text-sm flex-wrap">
+				<input id="avatar-upload" name="avatar" type="file" accept="image/*" class="hidden" />
+				<label for="avatar-upload" class="cursor-pointer bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-white">Change Avatar</label>
+				<button type="submit" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded">Save Avatar</button>
+			</form>
+			<form id="profile-info-form" class="space-y-3">
+				<div class="flex gap-2 flex-wrap items-center">
+					<input type="text" name="display_name" value="${user.display_name}" placeholder="Display name" class="flex-grow p-2 rounded bg-gray-900 text-white text-sm border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+					<input type="email" name="email" value="${user.email}" placeholder="Email" class="flex-grow p-2 rounded bg-gray-900 text-white text-sm border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+					<button type="submit" class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded text-sm">Save Changes</button>
+				</div>
+			</form>
+			<form id="password-form" class="flex gap-2 flex-wrap items-center">
+				<input type="password" name="password" placeholder="New password" minlength="8" class="flex-grow p-2 rounded bg-gray-900 text-white text-sm border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+				<button type="submit" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-2 rounded text-sm">Save Password</button>
+			</form>
+			<div class="border border-gray-700 rounded p-4 space-y-2 bg-gray-900/60">
+				<label class="flex items-center gap-2 text-sm">
+					<input type="checkbox" id="enable-2fa" ${user.twofa_enabled ? 'checked' : ''}/> <span>Enable 2FA</span>
+					${user.twofa_verified ? '<span class="text-green-500">Verified</span>' : ''}
+				</label>
+				<div id="2fa-options" class="${user.twofa_enabled ? '' : 'hidden'} flex flex-wrap items-center gap-4 text-sm">
+					<label><input type="radio" name="twofa_method" value="email" ${user.twofa_method === 'email' ? 'checked' : ''}/> Email</label>
+					<label><input type="radio" name="twofa_method" value="app" ${user.twofa_method === 'app' ? 'checked' : ''}/> Auth App</label>
+					<button id="save-2fa" type="button" class="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-white text-sm">Save 2FA</button>
+				</div>
+			</div>
+		</div>
+	</div>`;
+}
 export type User = {
 	id: number;
 	email: string;
 	password_hash: string;
 	display_name: string;
 	avatar_url: string;
+	anonymized?: number; // 0 | 1
   
 	twofa_method: 'app' | 'email' | null;
 	twofa_secret: string | null;
@@ -743,12 +556,13 @@ export async function renderUserList() {
 		app.innerHTML = `
 
 		  <div class="flex justify-between items-start p-4">
-           <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
-    	</div>
-			<div class="max-w-4xl mx-auto p-4">
-				<h1 class="text-2xl font-bold mb-4">Users</h1>
-				<ul class="space-y-3">
-					${users.map((u: any) => {
+	           <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
+			</div>
+				<div class="max-w-4xl mx-auto p-4">
+					<h1 class="text-2xl font-bold mb-4">Users</h1>
+					<div class="border border-gray-700 rounded-lg bg-gray-800/70 backdrop-blur p-3" style="max-height:70vh; overflow-y:auto;" id="user-scroll">
+					<ul class="space-y-3 pr-2">
+						${users.map((u: any) => {
 						let friendStatusHTML = '';
 						const isSelf = u.id.toString() === currUser.userId;
 						if (isSelf){
@@ -779,8 +593,12 @@ export async function renderUserList() {
 							</li>`;
 					}).join('')}
 				</ul>
+				</div>
 			</div>
 		`;
+		// Ensure scroll starts at top each render
+		const scrollBox = document.getElementById('user-scroll');
+		if (scrollBox) scrollBox.scrollTop = 0;
 	} catch (err) {
 		console.error(err);
 		app.innerHTML = `<div class="text-red-500 text-center">Failed to load users</div>`;
@@ -938,40 +756,41 @@ export function renderLogin() {
 	}
 
 	setContent(`
-		<h1 class="text-xl font-bold">Login</h1>
-		<form id="login-form" class="flex flex-col gap-2 mt-4">
-			<input type="email" name="email" placeholder="Email" class="p-2 border text-black" />
-			<input type="password" name="password" placeholder="Password" class="p-2 border text-black" />
-			<button type="submit" class="bg-blue-600 text-white px-4 py-2">Submit</button>
-			<button type="button" onclick="route('/register')" class="m-2 bg-green-500 text-white px-4 py-2 rounded">Create Account</button>
-		</form>
-
-		<div class="flex items-center my-6">
-			<div class="flex-grow h-px bg-gray-500"></div>
-			<span class="px-2 text-gray-400 text-sm">OR</span>
-			<div class="flex-grow h-px bg-gray-500"></div>
-		</div>
-
-		<div class="mt-2 flex flex-col gap-2">
-			<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-400 rounded px-4 py-2 hover:bg-gray-100 text-black bg-white">
+<div class="max-w-md mx-auto mt-12 bg-gray-800/70 backdrop-blur rounded-xl shadow-lg border border-gray-700 p-6 text-white">
+	<h1 class="text-2xl font-bold mb-4 text-center">Login</h1>
+	<form id="login-form" class="flex flex-col gap-4">
+		<input type="email" name="email" placeholder="Email" class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none autofill:bg-gray-900" />
+		<input type="password" name="password" placeholder="Password" class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none autofill:bg-gray-900" />
+		<button type="submit" class="bg-indigo-600 hover:bg-indigo-500 transition-colors text-white font-medium px-4 py-2 rounded">Sign In</button>
+		<button type="button" onclick="route('/register')" class="bg-gray-700 hover:bg-gray-600 transition-colors text-white font-medium px-4 py-2 rounded text-sm">Create Account</button>
+	</form>
+	<div id="login-error" class="hidden mt-4 bg-red-900/70 border border-red-600 text-red-200 px-3 py-2 rounded text-sm"></div>
+	<div class="flex items-center my-6">
+		<div class="flex-grow h-px bg-gray-600"></div>
+		<span class="px-2 text-gray-400 text-xs tracking-wide">OR</span>
+		<div class="flex-grow h-px bg-gray-600"></div>
+	</div>
+	<div class="mt-2 flex flex-col gap-2">
+		<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-600 rounded px-4 py-2 hover:bg-gray-700 bg-gray-900 text-gray-200 transition-colors">
 			<img src="/uploads/42_Logo.svg" alt="42" class="w-6 h-6" />
 			<span class="font-medium">Login with 42</span>
-			</button>
-		</div>
-
-	`);
+		</button>
+	</div>
+</div>`);
 
 	document.getElementById("oauth")?.addEventListener("click", () => {
 		window.location.href = "/api/auth/42";
 	  });
 
-	document.getElementById('login-form')!.addEventListener('submit', async (e) => {
+		const loginError = document.getElementById('login-error') as HTMLDivElement | null;
+		document.getElementById('login-form')!.addEventListener('submit', async (e) => {
 		e.preventDefault();
 		const formData = new FormData(e.target as HTMLFormElement);
 		const email = formData.get('email')?.toString().trim();
 		const password = formData.get('password')?.toString().trim();
 		if (!email || !password) {
-			return alert('Email and password are both required');
+			if (loginError) { loginError.textContent = 'Email and password are both required'; loginError.classList.remove('hidden'); }
+			return;
 		  }		  
 	  
 		try {
@@ -982,11 +801,10 @@ export function renderLogin() {
 		  });
 
 		  if (!res.ok) {
-			const msg = await res.text();  
-			alert(msg || 'Invalide credentials');
-			//route('/login');
+			const msg = (await res.text()) || '';
+			if (loginError) { loginError.textContent = msg || 'Invalid credentials'; loginError.classList.remove('hidden'); }
 			return;
-			}
+		  }
 
 		const data = await res.json();
 
@@ -1005,7 +823,7 @@ export function renderLogin() {
 			  });
 			}
 			const code = prompt(`Enter 2FA code in your ${data.method}`);
-			if (!code) return alert('2FA code required');
+			if (!code) { if (loginError) { loginError.textContent = '2FA code required'; loginError.classList.remove('hidden'); } return; }
 	  
 			const verifyRes = await fetch('/api/2fa/verify-code', {
 			  method: 'POST',
@@ -1015,9 +833,9 @@ export function renderLogin() {
 
 			if (!verifyRes.ok) {
 				const msg = await verifyRes.text();
-				console.log('verifyRes status:', verifyRes.status, 'message:', msg);
-				throw new Error(msg || '2FA verification failed');
-			  }
+				if (loginError) { loginError.textContent = msg || '2FA verification failed'; loginError.classList.remove('hidden'); }
+				return;
+			}
 
 			const finalRes = await fetch('/api/final-login', {
 				method: 'POST',
@@ -1025,9 +843,10 @@ export function renderLogin() {
 				body: JSON.stringify({ email, password })
 			  });
 			  
-			  if (!finalRes.ok) {
+			if (!finalRes.ok) {
 				const msg = await finalRes.text();
-				throw new Error(msg || 'Something went wrong');
+				if (loginError) { loginError.textContent = msg || 'Login failed'; loginError.classList.remove('hidden'); }
+				return;
 			}else {
 				const finalData = await finalRes.json();
 				localStorage.setItem('userId', finalData.user_id);
@@ -1039,7 +858,7 @@ export function renderLogin() {
 		} catch (err) {
 
 				console.error(err);
-				alert(err instanceof Error ? err.message : 'Network error');
+				if (loginError) { loginError.textContent = err instanceof Error ? err.message : 'Network error'; loginError.classList.remove('hidden'); }
 			  }
 	  });	  
 }

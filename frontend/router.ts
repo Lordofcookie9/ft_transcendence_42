@@ -12,11 +12,16 @@ import {
   renderEntryPage,
   renderHome,
   renderLocal1v1,
+  renderLocalSetup1v1,
+  renderLocalTournamentSetup,
+  renderOnlineTournamentSetup,
+  renderOnlineTournamentJoin,
   renderLocalVsAI,
   renderPrivate1v1,
   renderTournament,
   renderOnlineTournamentLobby,
   renderOnlineTournamentRoom,
+  renderOnlineTournamentList,
   renderGame,
   renderChat,
   renderMain,
@@ -37,6 +42,7 @@ const routes: Record<string, () => Promise<void> | void> = {
   '/': renderEntryPage,
   '/home': renderHome,
   '/local': renderLocal1v1,
+  '/local-setup': renderLocalSetup1v1,
   '/local-ai': renderLocalVsAI,
   '/private1v1': renderPrivate1v1,
   '/tournament': renderTournament,
@@ -50,7 +56,11 @@ const routes: Record<string, () => Promise<void> | void> = {
   '/oauth-success': renderOauthSuccess,
   '/tournament-online-lobby': renderOnlineTournamentLobby, // legacy alias
   '/tournament-online': renderOnlineTournamentLobby,
+  '/tournament-online-list': renderOnlineTournamentList,
   '/tournament-room': renderOnlineTournamentRoom,
+  '/tournament-online-setup': renderOnlineTournamentSetup,
+  '/tournament-online-join': renderOnlineTournamentJoin,
+  '/tournament-setup': renderLocalTournamentSetup,
 };
 
 export function route(path: string) {

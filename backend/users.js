@@ -443,10 +443,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
         u.id,
         u.display_name,
         u.avatar_url,
-        CASE
-          WHEN (strftime('%s','now') - strftime('%s', u.last_online)) < 75 THEN 'online'
-          ELSE 'offline'
-        END AS account_status,
+        u.account_status AS account_status,
         u.created_at,
         u.last_online,
         u.pvp_wins   AS wins,
@@ -473,7 +470,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
       JOIN users u1 ON u1.id = m.host_id
       JOIN users u2 ON u2.id = m.guest_id
       WHERE ? IN (m.host_id, m.guest_id)
-        AND m.mode = 'private_1v1'
+        AND m.mode IN ('private_1v1','tournament')
       ORDER BY m.finished_at DESC
       LIMIT 50
       `,
@@ -626,13 +623,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
         return reply.code(401).send({ error: 'Unauthorized: Invalid or missing token' });
       }
   
-      await db.run(
-        `UPDATE users 
-         SET account_status = 'offline', 
-             last_online = CURRENT_TIMESTAMP 
-         WHERE id = ?`,
-        [userId]
-      );
+  await db.run(`UPDATE users SET account_status='offline' WHERE id = ?`, [userId]);
 
       reply.clearCookie('token', {
         path: '/',
@@ -651,7 +642,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
  fastify.get('/api/profile', { preValidation: [fastify.authenticate] }, async (req, reply) => {
 
   const user = await db.get(
-    `SELECT id, password_hash, email, display_name, avatar_url, twofa_method, twofa_enabled, twofa_verified, created_at, last_online, oauth_provider, pvp_losses AS losses, pvp_wins AS wins, account_status 
+  `SELECT id, password_hash, email, display_name, avatar_url, twofa_method, twofa_enabled, twofa_verified, created_at, last_online, oauth_provider, pvp_losses AS losses, pvp_wins AS wins, account_status, IFNULL(anonymized,0) AS anonymized 
      FROM users WHERE id = ?`,
     [req.user.id]
   );
@@ -785,11 +776,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
           u.id,
           u.display_name,
           u.avatar_url,
-          -- Derive presence from last_online (online if seen in last 75s)
-          CASE
-            WHEN (strftime('%s','now') - strftime('%s', u.last_online)) < 75 THEN 'online'
-            ELSE 'offline'
-          END AS account_status,
+          u.account_status AS account_status,
           u.created_at,
           u.last_online,
           u.pvp_wins   AS wins,
@@ -802,7 +789,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
                     ELSE m.host_id
                   END
             FROM matches m
-            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode = 'private_1v1'
+            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode IN ('private_1v1','tournament')
             ORDER BY m.finished_at DESC
             LIMIT 1
           ) AS last_match_opponent_id,
@@ -814,7 +801,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
                     ELSE (SELECT display_name FROM users WHERE id = m.host_id)
                   END
             FROM matches m
-            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode = 'private_1v1'
+            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode IN ('private_1v1','tournament')
             ORDER BY m.finished_at DESC
             LIMIT 1
           ) AS last_match_opponent,
@@ -826,7 +813,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
                     ELSE m.guest_score
                   END
             FROM matches m
-            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode = 'private_1v1'
+            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode IN ('private_1v1','tournament')
             ORDER BY m.finished_at DESC
             LIMIT 1
           ) AS last_match_your_score,
@@ -838,7 +825,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
                     ELSE m.host_score
                   END
             FROM matches m
-            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode = 'private_1v1'
+            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode IN ('private_1v1','tournament')
             ORDER BY m.finished_at DESC
             LIMIT 1
           ) AS last_match_opponent_score,
@@ -847,14 +834,14 @@ fastify.get('/api/user/:id', async (req, reply) => {
           (
             SELECT strftime('%Y-%m-%dT%H:%M:%SZ', m.finished_at)
             FROM matches m
-            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode = 'private_1v1'
+            WHERE (m.host_id = u.id OR m.guest_id = u.id) AND m.mode IN ('private_1v1','tournament')
             ORDER BY m.finished_at DESC
             LIMIT 1
           ) AS last_match_date
 
         FROM users u
         ORDER BY 
-          CASE WHEN (strftime('%s','now') - strftime('%s', u.last_online)) < 75 THEN 0 ELSE 1 END,
+          CASE WHEN u.account_status = 'online' THEN 0 ELSE 1 END,
           u.last_online DESC
       `);
 
@@ -891,6 +878,14 @@ fastify.get('/api/user/:id', async (req, reply) => {
     await db.run('DELETE FROM users WHERE id = ?', [userId]);
     await db.run(`DELETE FROM twofa_codes WHERE contact = ?`, [user.email.toLowerCase()]);
     await db.run(`DELETE FROM app_codes WHERE contact = ?`, [user.email.toLowerCase()]);
+    // Anonymize historic public messages referencing the old display name to limit personal data exposure.
+    try {
+      await db.run(`UPDATE messages SET alias='[deleted]' WHERE alias = (SELECT display_name FROM users WHERE id = ?)`, [userId]);
+    } catch {}
+    // Private messages still reference numeric sender/recipient IDs; once user row removed those become orphaned logically.
+    await db.run(`DELETE FROM private_messages WHERE sender_id = ? OR recipient_id = ?`, [userId, userId]);
+    await db.run(`DELETE FROM friends WHERE user_id = ? OR friend_id = ?`, [userId, userId]);
+    await db.run(`DELETE FROM matches WHERE host_id = ? OR guest_id = ?`, [userId, userId]);
   
     reply.clearCookie('token', {
       path: '/',
@@ -899,6 +894,43 @@ fastify.get('/api/user/:id', async (req, reply) => {
       sameSite: 'lax'
     });
     return { message: 'Your account has been permanently deleted' };
+  });
+
+  // Ensure anonymized column exists (ignore error if already there)
+  try { await db.run(`ALTER TABLE users ADD COLUMN anonymized INTEGER DEFAULT 0`); } catch {}
+
+  // Anonymize account (GDPR pseudonymization request) – retains stats but strips PII.
+  fastify.post('/api/account/anonymize', { preValidation: [fastify.authenticate] }, async (req, reply) => {
+    const uid = req.user.id;
+    try {
+      await db.run('BEGIN');
+      const user = await db.get(`SELECT id, email, display_name, anonymized FROM users WHERE id = ?`, [uid]);
+      if (!user) { await db.run('ROLLBACK'); return reply.code(404).send({ error: 'User not found' }); }
+      if (user.anonymized) { await db.run('ROLLBACK'); return reply.send({ message: 'Already anonymized' }); }
+
+      const emailHash = require('crypto').createHash('sha256').update(user.email).digest('hex');
+      const placeholderEmail = emailHash + '@anon.local';
+      const newDisplay = 'anon_' + user.id;
+      const randomPwd = await bcrypt.hash(require('crypto').randomBytes(32).toString('hex'), 10);
+
+      // Update messages aliases first
+      await db.run(`UPDATE messages SET alias = ? WHERE alias = ?`, [newDisplay, user.display_name]);
+      // Scrub user record
+      await db.run(`UPDATE users SET email = ?, display_name = ?, avatar_url = '/default-avatar.png', password_hash = ?, twofa_enabled = 0, twofa_method = NULL, twofa_verified = 0, anonymized = 1 WHERE id = ?`, [placeholderEmail, newDisplay, randomPwd, uid]);
+      await db.run(`DELETE FROM twofa_codes WHERE contact = ?`, [user.email]);
+      await db.run(`DELETE FROM app_codes WHERE contact = ?`, [user.email]);
+      await db.run('COMMIT');
+      reply.clearCookie('token', { path: '/', httpOnly: true, secure: true, sameSite: 'lax' });
+      return { message: 'Account anonymized', display_name: newDisplay };
+    } catch (err) {
+      try { await db.run('ROLLBACK'); } catch {}
+      fastify.log.error(err);
+      return reply.code(500).send({ error: 'Anonymization failed' });
+    }
+  });
+  // Simple privacy info endpoint (minimal)
+  fastify.get('/api/privacy/info', async (_, reply) => {
+    return { rights: ['Delete account'], contact: 'privacy@transcendence.local' };
   });
 
 };

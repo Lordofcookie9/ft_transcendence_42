@@ -409,33 +409,19 @@ export async function renderTournament() {
 
 declare global { interface Window { joinTournamentInvite?: (id:number) => void; } }
 
+// Redirect to dedicated join setup page (no native prompts)
 window.joinTournamentInvite = async function joinTournamentInvite(id: number) {
-  const useUsername = confirm('Join with your username? Click "Cancel" to type a custom alias.');
-  let alias_mode: 'username' | 'custom' = useUsername ? 'username' : 'custom';
-  let alias: string | undefined;
-  if (alias_mode === 'custom') {
-    let a = prompt('Enter your alias (1–40 chars):');
-    if (a === null) return;
-    a = a.trim().slice(0,40);
-    while (!a) {
-      a = prompt('Alias required (1–40 chars):') || '';
-      if (a === null) return;
-      a = a.trim().slice(0,40);
-    }
-    alias = a;
-  }
+  // Lightweight fetch to see if already participant; if yes go straight to lobby
   try {
-    const res = await fetch(`/api/tournament/${id}/join`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ alias_mode, alias })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error || 'Failed to join tournament');
-  } catch (err: any) {
-    alert(err?.message || 'Failed to join tournament');
-    return;
-  }
-  (window as any).route?.(`/tournament-online?lobby=${encodeURIComponent(String(id))}`);
+    const res = await fetch(`/api/tournament/${id}`, { credentials: 'include' });
+    const snap = await res.json().catch(()=>null);
+    if (snap?.ok) {
+      const myId = Number(localStorage.getItem('userId') || '0');
+      if (myId && snap.participants?.some((p: any)=> Number(p.user_id) === myId)) {
+        (window as any).route?.(`/tournament-online?lobby=${encodeURIComponent(String(id))}`);
+        return;
+      }
+    }
+  } catch {}
+  (window as any).route?.(`/tournament-online-join?lobby=${encodeURIComponent(String(id))}`);
 };
