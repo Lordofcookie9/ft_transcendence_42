@@ -5,10 +5,25 @@ import { route } from '../router.js';
 
 import { renderEntryPage } from '../pages/pages.js';
 
+function escapeHTML(str: string) {
+	return String(str).replace(/[&<>"'`=\/]/g,
+	  (s) => ({
+		"&": "&amp;",
+		"<": "&lt;",
+		">": "&gt;",
+		'"': "&quot;",
+		"'": "&#39;",
+		"/": "&#x2F;",
+		"`": "&#x60;",
+		"=": "&#x3D;"
+	  }[s] || s)
+	);
+  }
 
 export async function renderRegister() {
 	setContent(`
 		<h1>Create Account</h1>
+		
 		<form id="register-form" class="flex flex-col gap-2 mt-4">
 			<input name="display_name" type="text" placeholder="Public Name" required minlength="1" class="p-2 border text-black" />
 			<input name="email" type="email" placeholder="Email" required class="p-2 border text-black" />
@@ -42,153 +57,173 @@ export async function renderRegister() {
 
 			<div class="mt-2 flex flex-col gap-2">
 				<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-400 rounded px-4 py-2 hover:bg-gray-100 text-black bg-white">
-				<img src="/uploads/42_Logo.svg" alt="42" class="w-6 h-6" />
-				<span class="font-medium">Continue with 42</span>
+					<img src="/uploads/42_Logo.svg" alt="42" class="w-6 h-6" />
+					<span class="font-medium">Continue with 42</span>
 				</button>
-		</div>
-			</form>
+			</div>
+		</form>
 	`);
 
 	const form = document.getElementById('register-form') as HTMLFormElement;
 	const enable2FA = document.getElementById('enable-2fa') as HTMLInputElement;
 	const twoFAOptions = document.getElementById('2fa-options') as HTMLDivElement;
-	let twofaVerified :number = 0;
-	
+	const avatarInput = form.querySelector('#avatar') as HTMLInputElement | null;
+	let twofaVerified = 0;
+	let twofaMethod: string | null = null;
+	const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 	enable2FA?.addEventListener('change', () => {
 		twoFAOptions.classList.toggle('hidden', !enable2FA.checked);
 	});
-
+	
 	form?.addEventListener('submit', async (e) => {
 		e.preventDefault();
-
 		const email = (form.querySelector('[name="email"]') as HTMLInputElement).value.trim();
-		const twofaMethod = enable2FA.checked ? 
-			(form.querySelector('[name="twofa_method"]:checked') as HTMLInputElement)?.value : null;
-
-		const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+		twofaMethod = enable2FA.checked ? (form.querySelector('[name="twofa_method"]:checked') as HTMLInputElement)?.value : null;
 
 		if (enable2FA.checked && !twofaMethod) {
-			alert('Please select a 2FA method.');
-			return;
-		}
-		
-		if (twofaMethod === 'email' && !emailPattern.test(email)) {
-			alert('Valid email required for Email 2FA.');
+			alert('Please select a 2FA method or uncheck 2FA.');
 			return;
 		}
 
-		if (twofaMethod === 'email') {
-			const res = await fetch('/api/2fa/send-code', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ twofaMethod, email }),
-			});
+		if (!enable2FA.checked) {
 
-			if (res.ok) {
-				const code = prompt(`Enter the code sent to your Email`);
-				if (code) {
-					const verifyRes = await fetch('/api/2fa/verify-code', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ twofaMethod, email, code}),
-					});
-					if (verifyRes.ok) {
-						alert('Contact verified!');
-						twofaVerified = 1;
-					} else {
-						alert('Verification failed. Please check your email address.');
-					}
-				} else {
-					alert('Your browser seems busy. Try later.');
-				}
-			} else {
-				alert('Error sending verification code. Try later.');
+			const formData = new FormData(form);
+			formData.set('enable_2fa', 'false');
+
+			if (!avatarInput?.files?.length) {
+				formData.delete('avatar');
 			}
+			registerUser(formData);
 		}
-		
-		if (twofaMethod === 'app') {
-			const setupRes = await fetch('/api/2fa/send-code', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ twofaMethod, email })
-			});
-		
-			if (setupRes.ok) {
-				const { qrCodeDataURL } = await setupRes.json();
-		
-				let qrWindow = window.open('', 'QR Code', 'width=500,height=600,resizable=yes');
+		else {
 
-				if (qrWindow) {
-					qrWindow.document.open();
-					qrWindow.document.write(`<h3>Scan this in your Authenticator App</h3>`);
-					qrWindow.document.write(`<img src="${qrCodeDataURL}" />`);
-					qrWindow.document.close();
-					qrWindow.focus();
+			if (twofaMethod === 'email' && !emailPattern.test(email)) {
+				alert('Valid email required for Email 2FA.');
+				return;
+			}
+
+			if (twofaMethod === 'email' || twofaMethod === 'app') {
+
+				const res = await fetch('/api/2fa/send-code', {
+								method: 'POST',
+								headers: { 'Content-Type': 'application/json' },
+								body: JSON.stringify({ twofaMethod, email }),
+							});
+
+				if (!res.ok) {
+					alert('Error sending verification code. Try later.');
+					renderRegister();
 				}
+								
+				if (twofaMethod === 'email') {
 
-				const code = prompt(`Enter the 6-digit code from your Authenticator App`);
-				if (code) {
+					setContent(`
+						<h1 class="text-xl font-bold text-center">Set up your Two-Factor Authentication</h1>
+						<p class="mt-2">Enter the 2FA code received in ${twofaMethod}</p>
+						<form id="twofa-codes" class="flex flex-col gap-2 mt-4">
+						<input type="text" name="code" placeholder="Enter code" class="p-2 border text-black" />
+						<button type="submit" class="bg-gray-300 text-black font-bold px-4 py-2">Verify</button>
+						</form>
+
+						<br>
+						<button onclick="route('/register')" class="bg-gray-400 hover:bg-gray-600 text-white px-6 py-2 rounded">
+							Back to create account
+						</button>
+					`);
+				}
+				else if (twofaMethod === 'app') {
+
+					const { qrCodeDataURL } = await res.json();
+
+					setContent(`
+						<h1 class="text-xl font-bold text-center">Set up your Two-Factor Authentication</h1>				
+						<div id="twofa-codes-div" class="mt-4 p-4 border rounded bg-gray-100">
+							<p class="mb-2 font-medium text-black text-center">Scan this QR code in your Authenticator App to get your code:</p>
+							<img id="twofa-qr" class="mb-4 w-40 h-40 mx-auto" />
+							<form id="twofa-codes" class="flex flex-col gap-2 mt-4">
+							<input type="text" name="code" placeholder="Enter code" class="p-2 border text-black" />
+							<button type="submit" class="bg-gray-300 text-black font-bold px-4 py-2">Verify</button>
+							</form>
+						</div>
+						<br>
+						<button onclick="route('/register')" class="bg-gray-400 hover:bg-gray-600 text-white px-6 py-2 rounded">
+							Back to create account
+						</button>
+					`);
+
+					const qrImg = document.getElementById("twofa-qr") as HTMLImageElement;
+					qrImg.src = qrCodeDataURL;
+				}
+				document.getElementById("twofa-codes")!.addEventListener("submit", async (e) => {
+					e.preventDefault();
+					const formData = new FormData(e.target as HTMLFormElement);
+					const code = formData.get("code")?.toString().trim();
+					if (!code) return alert("2FA code required");
+
 					const verifyRes = await fetch('/api/2fa/verify-code', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({ twofaMethod, email, code }),
 					});
+
 					if (verifyRes.ok) {
-						alert('Authenticator set up successfully!');
+						//alert('Contact verified!');
 						twofaVerified = 1;
-					} else {
-						alert('Verification failed.');
+
+						const formData = new FormData(form);
+						formData.set('enable_2fa', enable2FA.checked ? 'true' : 'false');
+
+						const avatarInput = form.querySelector('#avatar') as HTMLInputElement | null;
+						if (!avatarInput?.files?.length) {
+						formData.delete('avatar');
+						}
+
+						if (enable2FA.checked && twofaMethod) {
+							formData.set('twofa_method', twofaMethod);
+							formData.set('twofa_verified', String(twofaVerified));
+						}
+
+						await registerUser(formData);	
 					}
-				}
-			} else {
-				alert('Error setting up Authenticator App. Try later.');
+					else {
+						alert('Verification failed. Please try again.');
+						return renderRegister();
+					}
+				});
 			}
 		}
-
-		if (enable2FA.checked && twofaVerified !== 1) {
-			alert('Please complete 2FA verification before registering.');
-			return;
-		  }
-
-		const formData = new FormData(form);
-		if (enable2FA.checked) {
-			formData.set('enable_2fa', 'true');}
-		else {
-			formData.set('enable_2fa', 'false');}
-		// if (!enable2FA.checked){
-			
-		if (enable2FA.checked && twofaMethod) {
-			formData.set('twofa_method', twofaMethod);
-			formData.set('twofa_verified', String(twofaVerified));
-		  }
-
-		try {
-			const res = await fetch('/api/register', {
-				method: 'POST',
-				body: formData
-			});
-
-			if (res.ok) {
-				alert('Account created!');
-				const user = await res.json();
-				localStorage.setItem("userId", user.id);
-				localStorage.setItem("display_name", user.display_name);
-				startPresenceHeartbeat();
-				await route('/profile');
-			} else {
-				const msg = await res.text();
-				alert('Error: ' + msg);
-			}
-		} catch (err) {
-			console.error(err);
-			alert(err instanceof Error ? err.message : 'Network error');
-		}
-	})
+	});
 
 	document.getElementById("oauth")?.addEventListener("click", () => {
 		window.location.href = "/api/auth/42";
-	  });
+	});
 }
+
+async function registerUser(formData: FormData) {
+	try {
+	  const res = await fetch('/api/register', {
+		method: 'POST',
+		body: formData,
+	  });
+  
+	  if (res.ok) {
+		alert('Well done! Account created!');
+		const user = await res.json();
+		localStorage.setItem("userId", user.id);
+		localStorage.setItem("display_name", user.display_name);
+		startPresenceHeartbeat();
+		await route('/profile');
+	  } else {
+		const msg = await res.text();
+		alert('Error: ' + msg);
+		renderRegister();
+	  }
+	} catch (err) {
+	  console.error(err);
+	  alert(err instanceof Error ? err.message : 'Network error');
+	}
+  }
 
 export function renderOauthSuccess() {
 	setContent(`
@@ -235,7 +270,7 @@ function renderProfileHTML(user: User) {
 		</form>
 	  </div>
   
-	  <h2 class="text-center text-white font-bold text-2xl">${user.display_name}</h2>
+	  <h2 class="text-center text-white font-bold text-2xl">${escapeHTML(user.display_name)}</h2>
   
 	  <div class="text-center max-w-xs mx-auto">
 		<form id="name-form" class="flex items-center space-x-2">
@@ -295,6 +330,8 @@ function renderProfileHTML(user: User) {
 			</label>
 			<button id="save-2fa" class="mt-2 bg-blue-500 text-white px-3 py-1 rounded text-sm">Save 2FA Settings</button>
 		</div>
+
+		<div id="twofa-verification-container" class="mt-4"></div>
 	</div>
 
 
@@ -322,8 +359,8 @@ function renderProfileHTML(user: User) {
 		</div>
 
 		<div class="text-center mt-4">
-        <a href="/profile/${user.id}" 
-           onclick="route('/profile/${user.id}'); return false;" 
+        <a href="/profile/${encodeURIComponent(user.id)}" 
+           onclick="route('/profile/${encodeURIComponent(user.id)}'); return false;" 
            class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
            View your Public Page
         </a>
@@ -340,8 +377,6 @@ function renderProfileHTML(user: User) {
 }
 
 function setProfileEvents(user: User) {
-
-	console.log('in set profile', user);
 
 	document.getElementById('logout')?.addEventListener('click', logout);
 	document.getElementById('delete-profile-btn')?.addEventListener('click', async () => {
@@ -477,6 +512,7 @@ function setProfileEvents(user: User) {
 	  } else {
 		const msg = await res.text();
 		alert('Error: ' + msg);
+		renderProfile();
 	  }
 	});
 
@@ -575,35 +611,45 @@ function setProfileEvents(user: User) {
 			body: JSON.stringify({ twofaMethod: method , email: user.email })
 		});
 
-		if (res && res.ok) {
-			if (method === 'app') {
+		if (!res.ok) {
+			alert('Error sending verification code. Try later.');
+			renderProfile();
+		}
+						
+		if (method === 'app') {
 
-				const { qrCodeDataURL } = await res.json();
-				let qrWindow = window.open('', 'QR Code', 'width=500,height=600,resizable=yes');
+			const { qrCodeDataURL } = await res.json();
+			let qrWindow = window.open('', 'QR Code', 'width=500,height=600,resizable=yes');
 
-				if (qrWindow) {
-					qrWindow.document.open();
-					qrWindow.document.write(`<h3>Scan this in your Authenticator App</h3>`);
-					qrWindow.document.write(`<img src="${qrCodeDataURL}" />`);
-					qrWindow.document.close();
-					qrWindow.focus();
-				}	
-			}
-			
-			const code = prompt('Enter the verification code :');
-			if (code) {
+			if (qrWindow) {
+				qrWindow.document.open();
+				qrWindow.document.write(`<h3>Scan this in your Authenticator App</h3>`);
+				qrWindow.document.write(`<img src="${qrCodeDataURL}" />`);
+				qrWindow.document.close();
+				qrWindow.focus();
+			}	
+		}
 
-				// console.log('save-2fa clicked; user=', user, 'method=', method);
-
-
-				// let password: string | null = null;
-				// if (user.oauth_provider) {
-				// 	password = prompt("To activate 2fa, confirm, set or reset your password:");
-				// if (!password || password.length < 8) {
-				// 	alert("Password must be at least 8 characters.");
-				// 	return;
-				// }
-				// }
+		const container = document.getElementById("twofa-verification-container");
+		container!.innerHTML = `
+			<div class="mt-4 p-4 border rounded bg-gray-100">
+			<p class="mb-2">Enter the verification code:</p>
+			<form id="verify-2fa-form" class="flex flex-col gap-2">
+				<input type="text" name="code" placeholder="123456" class="p-2 border text-black flex-grow" />
+				<button type="submit" class="bg-blue-700 text-white px-4 py-2 rounded">Verify</button>
+			</form>
+			</div>
+		<br>
+			<button onclick="route('/profile')" class="bg-gray-400 hover:bg-gray-600 text-white px-6 py-2 rounded">
+				Cancel
+			</button>
+		`;
+		  
+			document.getElementById("verify-2fa-form")!.addEventListener("submit", async (e) => {
+			  e.preventDefault();
+			  const formData = new FormData(e.target as HTMLFormElement);
+			  const code = formData.get("code")?.toString().trim();
+			  if (!code) return alert("Please enter the code");
 
 				const verifyRes = await fetch('/api/2fa/verify-code', {
 					method: 'POST',
@@ -622,6 +668,7 @@ function setProfileEvents(user: User) {
 					});
 					if (res.ok) {
 					alert('Updated!');
+					renderProfile();
 					} else {
 					const msg = await res.text();
 					alert('Error: ' + msg);
@@ -630,12 +677,10 @@ function setProfileEvents(user: User) {
 					console.error(err);
 					alert("Something went wrong while updating your profile.");
 				}
-			} else {
-				alert('Verification failed.');}
+				} else {
+					alert('Your email address or code may be wrong, cancel and try again.');}
+			})
 			}
-			}
-		}
-		renderProfile();
 });
 }
 
@@ -658,11 +703,6 @@ export type User = {
   }; 
 
 export async function renderProfile() {
-	// const userId = localStorage.getItem('userId');
-	// if (!userId) {
-	//   alert("Please login");
-	//   return route('/login');
-	// }
   
 	const res = await fetch('/api/profile', {
 	  method: 'GET',
@@ -682,9 +722,6 @@ export async function renderProfile() {
 	try {
 	setContent(renderProfileHTML(user));
 	setProfileEvents(user);
-	// setTimeout(() => {
-	// 	document.getElementById('welcome-banner')?.remove();
-	//   }, 2000);
 	} catch {
 		setContent(`<div class="text-white-600">Not authorized to view this page.</div>`);
 	}
@@ -692,13 +729,6 @@ export async function renderProfile() {
 
   export async function logout(): Promise<void> {
 	  try {
-		
-		// const userId = localStorage.getItem('userId');
-		  
-		//   if (!userId) {
-		// 	  alert("Please login");
-		// 	  return route('/login');
-		//   }
   
 		  const response = await fetch('/api/logout', {
 			method: 'POST',
@@ -830,88 +860,87 @@ export async function renderUserProfile(userId: number) {
 	</div>
 	`;
 
-    // ---- Friend buttons / self link ----
-    if (currUser.type === "loggedInUser") {
-      if (!isSelf) {
-        if (user.friend_status === "adding") {
-          friendButtons = `
-            <div class="text-white-600">This user has sent you a friend request</div>
-            <div class="flex gap-2 mb-8">
-              <button class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded" onclick="window.acceptFriend(${user.id})">Accept</button>
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
-              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-            </div>`;
-        } else if (user.friend_status === "pending") {
-          friendButtons = `
-            <div class="text-white-600">Awaiting response to your friend request.</div>
-            <div class="flex gap-2 mb-8">
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Cancel request</button>
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
-              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-            </div>`;
-        } else if (user.friend_status === "accepted" || user.friend_status === "added") {
-          friendButtons = `
-            <div class="text-white-600">You are friends.</div>
-            <div class="flex gap-2 mb-8">
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Unfriend</button>
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
-              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-            </div>`;
-        } else if (user.friend_status === "blocked") {
-          friendButtons = `
-            <div class="flex gap-2 mb-8">
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Unblock</button>
-            </div>`;
-        } else {
-          friendButtons = `
-            <div class="flex gap-2 mb-8">
-              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded" onclick="window.addFriend(${user.id})">Add Friend</button>
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
-              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-            </div>`;
-        }
-      } else {
-        goProfile = `<a href="/profile" data-link class="text-white-400 hover:underline">Manage your profile</a>`;
-      }
-    }
-
-    // ---- Render ----
-    setContent(`
-      <div class="flex justify-between items-start p-4">
-        <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
-      </div>
-
-      <div class="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl shadow-xl">
-        <div class="flex items-center gap-6 mb-6">
-          <img src="${user.avatar_url}" class="w-24 h-24 rounded-full border-4 border-indigo-500" />
-          <div>
-            <h1 class="text-3xl font-bold">${user.display_name}</h1>
-            <p class="text-sm text-gray-400">Status: ${user.account_status}</p>
-            <p class="text-sm text-gray-400">Created: ${formatDate(user.created_at)}</p>
-            <p class="text-sm text-gray-400">Last Online: ${formatDate(user.last_online)}</p>
-          </div>
-        </div>
-
-        <div class="flex gap-4 mb-6">
-          <div class="bg-gray-700 px-4 py-2 rounded">🏆 Wins: <strong>${user.wins}</strong></div>
-          <div class="bg-gray-700 px-4 py-2 rounded">💥 Losses: <strong>${user.losses}</strong></div>
-        </div>
-
-        ${friendButtons}
-        ${goProfile}
-
-        <div class="mt-8">
-          ${historyBlock}
-        </div>
-      </div>
-    `);
-  } catch (err) {
-    setContent(`<div class="text-red-500 text-center">Failed to load profile.</div>`);
+if (currUser.type === "loggedInUser") {
+	if (!isSelf) {
+	  if (user.friend_status === "adding") {
+		friendButtons = `
+		  <div class="text-white-600">This user has sent you a friend request</div>
+		  <div class="flex gap-2 mb-8">
+			<button class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded" onclick="window.acceptFriend(${JSON.stringify(user.id)})">Accept</button>
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
+			<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+            <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
+   	  		</div>`;
+	  } else if (user.friend_status === "pending") {
+		friendButtons = `
+		  <div class="text-white-600">Awaiting response to your friend request.</div>
+		  <div class="flex gap-2 mb-8">
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${JSON.stringify(user.id)})">Cancel request</button>
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
+			<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+            <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
+		  </div>`;
+	  } else if (user.friend_status === "accepted" || user.friend_status === "added") {
+		friendButtons = `
+		  <div class="text-white-600">You are friends.</div>
+		  <div class="flex gap-2 mb-8">
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${JSON.stringify(user.id)})">Unfriend</button>
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
+			<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+            <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
+		  </div>`;
+	  } else if (user.friend_status === "blocked") {
+		friendButtons = `
+		  <div class="flex gap-2 mb-8">
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${JSON.stringify(user.id)})">Unblock</button>
+		  </div>`;
+	  } else if (!user.friend_status) {
+		friendButtons = friendButtons = `
+		  <div class="flex gap-2 mb-8">
+			<button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded" onclick="window.addFriend(${JSON.stringify(user.id)})">Add Friend</button>
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
+			<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+            <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
+		  </div>`;
+	  }
+	} else {
+	  goProfile = `<a href="/profile" data-link class="text-white-400 hover:underline">Manage your profile</a>`;
+	}
   }
+  
+    // ---- Render ----
+	setContent(`
+		<div class="flex justify-between items-start p-4">
+		  <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
+		</div>
+	
+		<div class="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl shadow-xl">
+		  <div class="flex items-center gap-6 mb-6">
+			<img src="${user.avatar_url}" class="w-24 h-24 rounded-full border-4 border-indigo-500" />
+			<div>
+			  <h1 class="text-3xl font-bold">${escapeHTML(user.display_name)}</h1>
+			  <p class="text-sm text-gray-400">Status: ${user.account_status}</p>
+			  <p class="text-sm text-gray-400">Created: ${formatDate(user.created_at)}</p>
+			  <p class="text-sm text-gray-400">Last Online: ${formatDate(user.last_online)}</p>
+			</div>
+		  </div>
+	
+		  <div class="flex gap-4 mb-6">
+			<div class="bg-gray-700 px-4 py-2 rounded">🏆 Wins: <strong>${user.wins}</strong></div>
+			<div class="bg-gray-700 px-4 py-2 rounded">💥 Losses: <strong>${user.losses}</strong></div>
+		  </div>
+	
+		  ${friendButtons}
+		  ${goProfile}
+	
+		  <div class="mt-8">
+			${historyBlock}
+		  </div>
+		</div>
+	  `);
+	} catch (err) {
+	  setContent(`<div class="text-red-500 text-center">Failed to load profile. It may not exist. </div>`);
+	}
 }
 
 export function getUserInfo() {
@@ -981,9 +1010,13 @@ export function renderLogin() {
 			body: JSON.stringify({ email, password })
 		  });
 
+		  if (res.status === 429) {
+			throw new Error("Too many login attempts. Please wait a few minutes.");
+		  }
+
 		  if (!res.ok) {
 			const msg = await res.text();  
-			alert(msg || 'Invalide credentials');
+			alert(msg || 'Invalid credentials');
 			//route('/login');
 			return;
 			}
@@ -1004,46 +1037,63 @@ export function renderLogin() {
 				body: JSON.stringify({ twofaMethod: 'email', email: data.email })
 			  });
 			}
-			const code = prompt(`Enter 2FA code in your ${data.method}`);
-			if (!code) return alert('2FA code required');
-	  
-			const verifyRes = await fetch('/api/2fa/verify-code', {
-			  method: 'POST',
-			  headers: { 'Content-Type': 'application/json' },
-			  body: JSON.stringify({ twofaMethod: data.method, email: data.email, code })
-			});
 
-			if (!verifyRes.ok) {
-				const msg = await verifyRes.text();
-				console.log('verifyRes status:', verifyRes.status, 'message:', msg);
-				throw new Error(msg || '2FA verification failed');
-			  }
+			setContent(`
+				<h1 class="text-xl font-bold">Two-Factor Authentication</h1>
+				<p class="mt-2">Enter the 2FA code from your ${data.method}</p>
+				<form id="twofa-form" class="flex flex-col gap-2 mt-4">
+				  <input type="text" name="code" placeholder="Enter code" class="p-2 border text-black" />
+				  <button type="submit" class="bg-blue-600 text-white px-4 py-2">Verify</button>
+				</form>
+			  `);
+			
+			document.getElementById("twofa-form")!.addEventListener("submit", async (e) => {
+			e.preventDefault();
 
-			const finalRes = await fetch('/api/final-login', {
+			try {
+				const formData = new FormData(e.target as HTMLFormElement);
+				const code = formData.get("code")?.toString().trim();
+				if (!code) return alert("2FA code required");
+		
+				const verifyRes = await fetch('/api/2fa/verify-code', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email, password })
-			  });
-			  
-			  if (!finalRes.ok) {
-				const msg = await finalRes.text();
-				throw new Error(msg || 'Something went wrong');
-			}else {
-				const finalData = await finalRes.json();
-				localStorage.setItem('userId', finalData.user_id);
-				localStorage.setItem('display_name', finalData.display_name);
-				startPresenceHeartbeat();
-				route('/profile');
-			  } 
-		  } 
-		} catch (err) {
+				body: JSON.stringify({ twofaMethod: data.method, email: data.email, code })
+				});
 
-				console.error(err);
-				alert(err instanceof Error ? err.message : 'Network error');
-			  }
+				if (!verifyRes.ok) {
+					const msg = await verifyRes.text();
+					console.log('verifyRes status:', verifyRes.status, 'message:', msg);
+					throw new Error(msg || '2FA verification failed');
+				}
+
+				const finalRes = await fetch('/api/final-login', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ email, password })
+				});
+				
+				if (!finalRes.ok) {
+					const msg = await finalRes.text();
+					throw new Error(msg || 'Something went wrong');
+				}else {
+					const finalData = await finalRes.json();
+					localStorage.setItem('userId', finalData.user_id);
+					localStorage.setItem('display_name', finalData.display_name);
+					startPresenceHeartbeat();
+					route('/profile');
+				} 
+			}catch (err) {
+			console.error(err);
+			alert(err instanceof Error ? err.message : 'Network error');
+			}
+		  } )}
+		} catch (err) {
+			console.error(err);
+			alert(err instanceof Error ? err.message : 'Network error');
+		}
 	  });	  
 }
-
 
 // Simple prompt-based private chat starter
 (window as any).startPrivateChat = async (userId: number, displayName?: string) => {
