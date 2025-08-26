@@ -1,6 +1,6 @@
 import { sendPrivateMessage } from '../pages/pages.js';
 import { uiAlert, uiConfirm, uiPrompt } from '../ui/modal.js';
-import { setContent, formatDbDateTime, startPresenceHeartbeat } from '../utility.js';
+import { setContent, formatDbDateTime, startPresenceHeartbeat, showToast } from '../utility.js';
 import { route } from '../router.js';
 import { renderEntryPage } from '../pages/pages.js';
 
@@ -128,39 +128,39 @@ function setProfileEvents(user: User) {
 		  });
   
 		  if (res.ok) {
-		  try {
-		  if (navigator.sendBeacon) {
-			const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
-			navigator.sendBeacon('/api/presence/offline', blob);
+		    try {
+		      if (navigator.sendBeacon) {
+		        const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
+		        navigator.sendBeacon('/api/presence/offline', blob);
+		      } else {
+		        await fetch('/api/presence/offline', { method: 'POST', credentials: 'include' });
+		      }
+		    } catch {}
+		    localStorage.clear();
+		    route('/home');
+		    setTimeout(() => showToast('Account deleted', 'info'), 40);
 		  } else {
-			await fetch('/api/presence/offline', { method: 'POST', credentials: 'include' });
-		  }
-		  } catch {}
-		  localStorage.clear();
-		  alert('Account deleted.');
-		  route('/');
-		  } else {
-		  const err = await res.text();
-		  alert('Error: ' + err);
+		    const err = await res.text();
+		    showToast('Delete failed: ' + err, 'error');
 		  }
 	  });
 
 	document.getElementById('anonymize-account-btn')?.addEventListener('click', async () => {
-		if (user.anonymized) return uiAlert('Already anonymized.');
+		if (user.anonymized) { showToast('Already anonymized', 'info'); return; }
 		const ok = await uiConfirm('This will irreversibly anonymize your account (you will be logged out). Continue?','Anonymize Account');
 		if (!ok) return;
 		try {
 		  const res = await fetch('/api/account/anonymize', { method: 'POST', credentials: 'include' });
 		  if (res.ok) {
-			await uiAlert('Account anonymized. You can now log in again if needed.');
 			localStorage.clear();
-			route('/');
+			route('/home');
+			setTimeout(()=>showToast('Account anonymized', 'info'), 40);
 		  } else {
-			await uiAlert('Failed: ' + (await res.text()));
+			showToast('Failed: ' + (await res.text()), 'error');
 		  }
 		} catch (e) {
 		  console.error(e);
-		  uiAlert('Network error');
+		  showToast('Network error', 'error');
 		}
 	});
   
@@ -193,7 +193,7 @@ function setProfileEvents(user: User) {
 				return;
 			}
 			if (newName && newName !== origName) localStorage.setItem('display_name', newName);
-			alert('Profile updated.');
+			showToast('Profile updated.', 'success');
 			renderProfile();
 		} catch (err) {
 			console.error(err);
@@ -305,6 +305,28 @@ function setProfileEvents(user: User) {
 		}
 	});
 
+	// GDPR export
+	document.getElementById('gdpr-export')?.addEventListener('click', async () => {
+		try {
+			const res = await fetch('/api/account/export', { credentials: 'include' });
+			if (!res.ok) { showToast('Export failed', 'error'); return; }
+			const data = await res.json();
+			const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = 'my_account_export.json';
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+			URL.revokeObjectURL(url);
+			showToast('Download started', 'success');
+		} catch (e) {
+			console.error(e);
+			showToast('Export error', 'error');
+		}
+	});
+
 	document.getElementById('save-2fa')?.addEventListener('click', async () => {
 		const method = (document.querySelector('[name="twofa_method"]:checked') as HTMLInputElement)?.value;
 		if (!method) return alert('Please select a 2FA method.');
@@ -393,6 +415,9 @@ function renderProfileHTML(user: User): string {
 				<label for="avatar-upload" class="cursor-pointer bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-white">Change Avatar</label>
 				<button type="submit" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded">Save Avatar</button>
 			</form>
+			<div class="flex flex-wrap gap-2 text-xs">
+				<button id="gdpr-export" type="button" class="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-white">Download My Data (JSON)</button>
+			</div>
 			<div id="twofa-verification-container" class="text-sm"></div>
 			<form id="profile-info-form" class="space-y-3">
 				<div class="flex gap-2 flex-wrap items-center">
@@ -723,7 +748,7 @@ export function renderLogin() {
 		<div class="flex-grow h-px bg-gray-600"></div>
 	</div>
 	<div class="mt-2 flex flex-col gap-2">
-		<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-600 rounded px-4 py-2 hover:bg-gray-700 bg-gray-900 text-gray-200 transition-colors">
+		<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-300 rounded px-4 py-2 bg-white text-gray-900 hover:bg-gray-100 transition-colors shadow">
 			<img src="/uploads/42_Logo.svg" alt="42" class="w-6 h-6" />
 			<span class="font-medium">Login with 42</span>
 		</button>

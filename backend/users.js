@@ -972,4 +972,46 @@ fastify.get('/api/user/:id', async (req, reply) => {
     return { rights: ['Delete account'], contact: 'privacy@transcendence.local' };
   });
 
+  // GDPR: Export personal data (JSON bundle)
+  fastify.get('/api/account/export', { preValidation: [fastify.authenticate] }, async (req, reply) => {
+    const userId = req.user.id;
+    try {
+      const user = await db.get(`SELECT id, email, display_name, created_at, last_online, anonymized, account_status, pvp_wins, pvp_losses FROM users WHERE id = ?`, [userId]);
+      if (!user) return reply.code(404).send({ error: 'User not found' });
+      const matches = await db.all(`SELECT id, mode, host_id, guest_id, host_score, guest_score, strftime('%Y-%m-%dT%H:%M:%SZ', finished_at) as finished_at FROM matches WHERE host_id = ? OR guest_id = ? ORDER BY finished_at DESC`, [userId, userId]);
+      let messages = [];
+      try {
+        // Public messages authored by current (by alias). Table columns: alias, message, timestamp
+        messages = await db.all(`SELECT id, alias, message, strftime('%Y-%m-%dT%H:%M:%SZ', timestamp) as timestamp FROM messages WHERE alias = ? ORDER BY id DESC`, [user.display_name]);
+      } catch {}
+      let privateMessages = [];
+      try {
+        const rows = await db.all(`SELECT id, sender_id, recipient_id, message, strftime('%Y-%m-%dT%H:%M:%SZ', timestamp) as timestamp FROM private_messages WHERE sender_id = ? OR recipient_id = ? ORDER BY id DESC`, [userId, userId]);
+        privateMessages = rows.map(r => ({ ...r, direction: r.sender_id === userId ? 'sent' : 'received' }));
+      } catch {}
+      const friends = await db.all(`SELECT user_id, friend_id, status FROM friends WHERE user_id = ? OR friend_id = ?`, [userId, userId]);
+      const exportBlob = { generated_at: new Date().toISOString(), user, matches, public_messages: messages, private_messages: privateMessages, friends };
+      reply.header('Content-Type', 'application/json');
+      reply.send(exportBlob);
+    } catch (e) {
+      fastify.log.error(e);
+      reply.code(500).send({ error: 'Export failed' });
+    }
+  });
+
+  // GDPR: Update personal info (display_name & email) combined
+  fastify.patch('/api/account/update', { preValidation: [fastify.authenticate] }, async (req, reply) => {
+    const userId = req.user.id;
+    const { display_name, email } = req.body || {};
+    if (!display_name && !email) return reply.code(400).send({ error: 'Nothing to update' });
+    try {
+      if (display_name) await db.run(`UPDATE users SET display_name = ? WHERE id = ?`, [display_name, userId]);
+      if (email) await db.run(`UPDATE users SET email = ? WHERE id = ?`, [email, userId]);
+      return { ok: true };
+    } catch (err) {
+      fastify.log.error(err);
+      return reply.code(500).send({ error: 'Update failed' });
+    }
+  });
+
 };

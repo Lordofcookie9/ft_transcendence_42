@@ -1,5 +1,5 @@
 import { getUserInfo, logout } from '../users/userManagement.js';
-import { setContent, escapeHtml } from '../utility.js';
+import { setContent, escapeHtml, showToast } from '../utility.js';
 import { route } from '../router.js';
 import { initPongGame } from "../pong/pong.js";
 import { updateChatBox, updateCounter } from './chat.js';
@@ -62,7 +62,7 @@ export function renderHome() {
         <div class="text-center">
           <h2 class="text-xl font-semibold mb-2">Tournament (up to 8 players)</h2>
           <button onclick="startTournamentSetup()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Local Tournament</button>
-          <button onclick="route('/tournament-online-list')" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Online Tournament</button>
+          <button onclick="goOnlineTournament()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Online Tournament</button>
         </div>
       </div>
       <div id="active-tournament-slot" class="mt-4"></div>
@@ -121,6 +121,17 @@ export function renderHome() {
     } catch {}
   })();
 }
+
+// Exposed helper to enforce login before accessing online tournaments
+(window as any).goOnlineTournament = (window as any).goOnlineTournament || (() => {
+  const userId = localStorage.getItem('userId');
+  if (!userId) {
+    showToast('Log in to access online tournaments', 'info');
+    (window as any).route?.('/login');
+    return;
+  }
+  (window as any).route?.('/tournament-online-list');
+});
 
 // --- API Helpers ---
 export async function getCount(id: string): Promise<number> {
