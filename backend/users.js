@@ -12,6 +12,9 @@ const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const fastifyWebsocket = require('@fastify/websocket');
 const axios = require('axios');
+const rateLimit = require('@fastify/rate-limit');
+const fastifyHelmet = require('@fastify/helmet');
+const fastifyCSRF = require('@fastify/csrf-protection');
 
 
 const db = fastify.db;
@@ -28,6 +31,23 @@ if (!MAIL_APP || !MAIL_APPPW) {
 	origin: 'https://localhost:3000',
 	credentials: true
  	 });
+
+  fastify.register(fastifyHelmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "https:"],
+        imgSrc: ["'self'", "data:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"]
+      }
+    }
+  });
+    
+  fastify.register(fastifyCSRF);
   
 	fastify.register(fastifyJwt, {
 	  secret: process.env.JWT_SECRET,
@@ -96,7 +116,6 @@ if (!MAIL_APP || !MAIL_APPPW) {
   
         const token = fastify.jwt.sign({ id: user.id, display_name: user.display_name });
         reply.setCookie('token', token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60*60*24*7 });
-        //return reply.code(201).send(user);
         return reply.redirect('/profile');
       } catch (err) {
         console.error(err);
@@ -155,6 +174,16 @@ if (!MAIL_APP || !MAIL_APPPW) {
     
       if (!email || !password || !display_name) {
         return reply.code(400).send('Missing required fields');
+      }
+
+      if (avatar) {
+        const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+        if (!allowedTypes.includes(avatar.mimetype)) {
+          return reply.code(400).send('Invalid avatar format');
+        }
+        if (avatar.size > 2 * 1024 * 1024) { 
+          return reply.code(400).send('File too large (max 2MB)');
+        }
       }
 
       if (enable_2fa !== 'true'){
@@ -336,12 +365,6 @@ fastify.post('/api/2fa/verify-code', async (req, reply) => {
       return reply.code(400).send('Invalid authenticator code');
     }
   }    
-  
-  // await db.run(`
-  //     UPDATE users
-  //     SET twofa_method = ?, twofa_verified = 1, twofa_enabled = 1
-  //     WHERE email = ?
-  //   `, [twofaMethod, email]);
     
     return reply.send({ success: true });
 });
@@ -404,14 +427,21 @@ fastify.post('/api/final-login', async (req, reply) => {
   return reply.send({ display_name: user.display_name, user_id: user.id });
 });
 
-fastify.post('/api/login', async (req, reply) => {
+fastify.post('/api/login', {
+  config: {
+    rateLimit: {
+      max: 5,            
+      timeWindow: '5 minutes', 
+      ban: 10
+    }
+  }
+}, async (req, reply) => {
   const { email, password } = req.body;
   if (!email || !password) return reply.code(400).send('Email and password required');
 
   const user = await db.get(`SELECT * FROM users WHERE email = ?`, [email]);
+  
   if (!user) return reply.code(401).send('Invalid credentials');
-
-  //console.log('user in login:', user);
 
   const match = await bcrypt.compare(password, user.password_hash);
   if (!match) return reply.code(401).send('Wrong credentials');
@@ -615,15 +645,18 @@ fastify.get('/api/user/:id', async (req, reply) => {
       try {
         const authorized = await req.jwtVerify();
         userId = authorized.id;
-      } catch (err_) {
-        console.error('Unauthorized:', err);
-      }
+      } catch (err_) {}
       
-      if (!userId) {
-        return reply.code(401).send({ error: 'Unauthorized: Invalid or missing token' });
-      }
+      if (userId) {
   
-  await db.run(`UPDATE users SET account_status='offline' WHERE id = ?`, [userId]);
+        await db.run(
+          `UPDATE users 
+          SET account_status = 'offline', 
+              last_online = CURRENT_TIMESTAMP 
+          WHERE id = ?`,
+          [userId]
+        );
+      }
 
       reply.clearCookie('token', {
         path: '/',
@@ -665,8 +698,14 @@ fastify.get('/api/user/:id', async (req, reply) => {
   }, async (req, reply) => {
 
     const avatar = req.file;
-    if (avatar && !avatar.mimetype.startsWith('image/')) {
-      return reply.code(400).send({ error: 'Invalid file type' });
+    if (avatar) {
+      const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+      if (!allowedTypes.includes(avatar.mimetype)) {
+        return reply.code(400).send('Invalid avatar format');
+      }
+      if (avatar.size > 2 * 1024 * 1024) { 
+        return reply.code(400).send('File too large (max 2MB)');
+      }
     }
 
     const result = await db.get(

@@ -160,6 +160,26 @@ export async function renderOnlineTournamentLobby() {
     </div>
   `);
 
+  // ---- Abort WS that used to bring everyone home ----
+  let __tournamentFinished = false; // once set, ignore aborts and close the socket
+  try { (window as any).__tLobbyAbortWS?.close(1000); } catch {}
+  const __wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const __abortURL = `${__wsProto}://${location.host}/ws/?lobbyId=${encodeURIComponent(String(lobbyId))}`;
+  const __abortWS = new WebSocket(__abortURL);
+  (window as any).__tLobbyAbortWS = __abortWS;
+
+  __abortWS.addEventListener('message', (ev) => {
+    if (__tournamentFinished) return; // do nothing after winner is crowned
+    let msg: any; try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg && msg.type === 'tournament:aborted') {
+      try { alert(String(msg.message || 'A player has left the tournament, you will be brought home.')); } catch {}
+      try { route('/home'); } catch { location.href = '/home'; }
+    }
+  });
+  const __cleanupAbort = () => { try { __abortWS.close(1001, 'navigate'); } catch {} };
+  window.addEventListener('beforeunload', __cleanupAbort, { once: true });
+  window.addEventListener('popstate', __cleanupAbort, { once: true });
+
   const startBtn = document.getElementById('start-btn') as HTMLButtonElement | null;
   startBtn?.addEventListener('click', async () => {
     try {
@@ -217,6 +237,12 @@ export async function renderOnlineTournamentLobby() {
   const invite = document.getElementById('invite-token');
   const progressMsg = document.getElementById('progress-msg');
     if (!info || !list || !snap || !snap.ok) return;
+
+    // If the tournament is finished, disable/close abort socket so no redirects can happen
+    if (snap.lobby.status === 'finished' && !__tournamentFinished) {
+      __tournamentFinished = true;
+      try { __abortWS.close(1000, 'tournament_finished'); } catch {}
+    }
 
     // Persist lobby membership for Home page rejoin button
     try {

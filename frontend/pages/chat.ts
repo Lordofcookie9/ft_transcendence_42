@@ -3,6 +3,10 @@ import { setContent, escapeHtml, formatDbTime } from '../utility.js';
 import { initPongGame } from "../pong/pong.js";
 import { route } from '../router.js';
 
+function decodeAngles(s: string) {
+  return String(s || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+}
+
 async function getMessages() {
   try {
     const res = await fetch('/api/chat');
@@ -58,7 +62,8 @@ export async function updateChatBox() {
   // Preload private 1v1 invite room statuses
   const inviteRoomIds = Array.from(new Set(
     messages.map((m) => {
-      const match = /<\(invite\):(\d+)>/.exec(m.message);
+      const text = decodeAngles(m.message);
+      const match = /<\(\s*invite\s*\)\s*:\s*(\d+)\s*>/i.exec(text);
       return match ? Number(match[1]) : null;
     }).filter((x): x is number => Number.isFinite(x as number))
   ));
@@ -76,7 +81,8 @@ export async function updateChatBox() {
   // Preload tournament lobby statuses
   const tournamentIds = Array.from(new Set(
     messages.map((m) => {
-      const t = /<\(tournament\):(\d+)>/.exec(m.message);
+      const text = decodeAngles(m.message);
+      const t = /<\(\s*tournament\s*\)\s*:\s*(\d+)\s*>/i.exec(text);
       return t ? Number(t[1]) : null;
     }).filter((x): x is number => Number.isFinite(x as number))
   ));
@@ -101,8 +107,9 @@ export async function updateChatBox() {
     const ts = parseTimestamp(msg.timestamp);
     const timestamp = ts ? formatDbTime(msg.timestamp) : '';
     const aliasMarkup = renderChatAlias(msg);
-    const inviteMatch = /<\(invite\):(\d+)>/.exec(msg.message);
-    const tournMatch = /<\(tournament\):(\d+)>/.exec(msg.message);
+    const rawText = decodeAngles(msg.message);
+    const inviteMatch = /<\(\s*invite\s*\)\s*:\s*(\d+)\s*>/i.exec(rawText);
+    const tournMatch = /<\(\s*tournament\s*\)\s*:\s*(\d+)\s*>/i.exec(rawText);
 
     if (inviteMatch) {
       const roomId = Number(inviteMatch[1]);
@@ -320,7 +327,7 @@ function ensureChatAliasMenuSetup() {
     if (data.guest_alias) localStorage.setItem('p2', data.guest_alias);
     localStorage.removeItem('p1Score');
     localStorage.removeItem('p2Score');
-    (window as any).route?.(`/private1v1?room=${data.room_id}`);
+    (window as any).route?.(`/private1v1?room=${roomId}`);
   } catch (err: any) {
     console.error(err);
     alert(err?.message || 'Could not join match');

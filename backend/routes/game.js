@@ -28,51 +28,85 @@ module.exports = function registerGameRoutes(fastify) {
       }
     });
 
-    //Match history for private game
-    fastify.post('/api/game/room/:id/join', { preValidation: [fastify.authenticate] }, async (request, reply) => {
+    // Join a room; assign role; return role + aliases (prefers tournament aliases when applicable)
+    fastify.post('/api/game/room/:id/join', { preValidation: [fastify.authenticate] }, async (req, reply) => {
       try {
-        const roomId = Number(request.params.id);
-        const me = request.user.id;
+        const roomId = Number(req.params.id);
+        const me = req.user.id;
 
-        const room = await fastify.db.get(`
-          SELECT gr.*, hu.display_name AS host_alias, gu.display_name AS guest_alias
-          FROM game_rooms gr
-          JOIN users hu ON hu.id = gr.host_id
-          LEFT JOIN users gu ON gu.id = gr.guest_id
-          WHERE gr.id = ?
-        `, [roomId]);
+        const room = await fastify.db.get(
+          `SELECT id, host_id, guest_id, status, mode
+            FROM game_rooms
+            WHERE id = ?`,
+          [roomId]
+        );
+        if (!room) return reply.code(404).send({ error: 'room_not_found' });
 
-        if (!room) return reply.code(404).send({ error: 'Room not found' });
+        // Attach user to room if needed (for private rooms or if a tournament room wasn't fully wired yet)
+        if (!room.host_id) {
+          // Non-tournament (private invite) path: first joiner becomes host
+          await fastify.db.run(`UPDATE game_rooms SET host_id = ? WHERE id = ?`, [me, roomId]);
+          room.host_id = me;
+        } else if (!room.guest_id && Number(room.host_id) !== Number(me)) {
+          await fastify.db.run(`UPDATE game_rooms SET guest_id = ? WHERE id = ?`, [me, roomId]);
+          room.guest_id = me;
+        }
 
-        if (room.host_id === me) {
-          if (room.status === 'pending') {
-            await fastify.db.run(`UPDATE game_rooms SET status = 'active' WHERE id = ?`, [roomId]);
+        // My role (engine expects left/right)
+        let role = 'spectator';
+        if (Number(room.host_id) === Number(me)) role = 'left';
+        else if (Number(room.guest_id) === Number(me)) role = 'right';
+
+        // Defaults: display names
+        const hostNameRow = room.host_id ? await fastify.db.get(
+          `SELECT display_name FROM users WHERE id = ?`, [room.host_id]
+        ) : null;
+        const guestNameRow = room.guest_id ? await fastify.db.get(
+          `SELECT display_name FROM users WHERE id = ?`, [room.guest_id]
+        ) : null;
+
+        let host_alias = hostNameRow?.display_name || 'Player';
+        let guest_alias = guestNameRow?.display_name || '— waiting —';
+
+        // If this is a tournament match room, prefer the tournament aliases
+        const trow = await fastify.db.get(
+          `SELECT tm.lobby_id, tm.p1_user_id, tm.p2_user_id,
+                  tp1.alias AS p1_alias, tp2.alias AS p2_alias
+            FROM tournament_matches tm
+        LEFT JOIN tournament_participants tp1
+              ON tp1.lobby_id = tm.lobby_id AND tp1.user_id = tm.p1_user_id
+        LEFT JOIN tournament_participants tp2
+              ON tp2.lobby_id = tm.lobby_id AND tp2.user_id = tm.p2_user_id
+            WHERE tm.room_id = ?
+            LIMIT 1`,
+          [roomId]
+        );
+
+        if (trow) {
+          // Map aliases onto the actual room sides
+          if (room.host_id) {
+            if (Number(room.host_id) === Number(trow.p1_user_id)) host_alias = trow.p1_alias || host_alias;
+            else if (Number(room.host_id) === Number(trow.p2_user_id)) host_alias = trow.p2_alias || host_alias;
           }
-          return reply.send({
-            ok: true, role: 'left', room_id: roomId,
-            host_alias: room.host_alias, guest_alias: room.guest_alias || null
-          });
+          if (room.guest_id) {
+            if (Number(room.guest_id) === Number(trow.p1_user_id)) guest_alias = trow.p1_alias || guest_alias;
+            else if (Number(room.guest_id) === Number(trow.p2_user_id)) guest_alias = trow.p2_alias || guest_alias;
+          }
         }
 
-        if (room.guest_id && room.guest_id !== me) {
-          return reply.code(409).send({ error: 'Room already has a guest' });
-        }
-
-        if (!room.guest_id) {
-          await fastify.db.run(`UPDATE game_rooms SET guest_id = ?, status = 'active' WHERE id = ?`, [me, roomId]);
-        }
-
-        const meAliasRow = await fastify.db.get(`SELECT display_name FROM users WHERE id = ?`, [me]);
         return reply.send({
-          ok: true, role: 'right', room_id: roomId,
-          host_alias: room.host_alias,
-          guest_alias: meAliasRow?.display_name || room.guest_alias || null
+          ok: true,
+          role,
+          host_alias,
+          guest_alias,
+          room: { id: room.id, status: room.status, mode: room.mode }
         });
       } catch (err) {
-        request.log.error({ err }, 'Failed to join room');
-        return reply.code(500).send({ error: 'Failed to join match' });
+        req.log?.error({ err }, 'room_join_failed');
+        return reply.code(500).send({ error: 'internal_error' });
       }
     });
+
     fastify.get('/api/game/room/:id', async (request, reply) => {
       try {
         const roomId = Number(request.params.id);

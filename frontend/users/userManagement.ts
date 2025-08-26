@@ -4,7 +4,21 @@ import { setContent, formatDbDateTime, startPresenceHeartbeat } from '../utility
 import { route } from '../router.js';
 import { renderEntryPage } from '../pages/pages.js';
 
-// Restored original (simplified) registration renderer
+function escapeHTML(str: string) {
+	return String(str).replace(/[&<>"'`=\/]/g,
+	  (s) => ({
+		"&": "&amp;",
+		"<": "&lt;",
+		">": "&gt;",
+		'"': "&quot;",
+		"'": "&#39;",
+		"/": "&#x2F;",
+		"`": "&#x60;",
+		"=": "&#x3D;"
+	  }[s] || s)
+	);
+  }
+
 export async function renderRegister() {
 	setContent(`
 	<div class="max-w-md mx-auto mt-10 bg-gray-800/70 backdrop-blur rounded-xl shadow-lg border border-gray-700 p-6 text-white">
@@ -81,8 +95,6 @@ export function renderOauthSuccess() {
 
 
 function setProfileEvents(user: User) {
-
-	console.log('in set profile', user);
 
 		document.getElementById('logout')?.addEventListener('click', logout);
 		// Edit mode toggling
@@ -294,95 +306,50 @@ function setProfileEvents(user: User) {
 	});
 
 	document.getElementById('save-2fa')?.addEventListener('click', async () => {
+		const method = (document.querySelector('[name="twofa_method"]:checked') as HTMLInputElement)?.value;
+		if (!method) return alert('Please select a 2FA method.');
+		if (enable2FA.checked && user.twofa_enabled && method === user.twofa_method) return alert('Nothing changed.');
+		if (!enable2FA.checked && !user.twofa_enabled) return alert('Nothing changed.');
 
-	const method = (document.querySelector('[name="twofa_method"]:checked') as HTMLInputElement)?.value;
-	if (!method) return alert('Please select a 2FA method.');
-
-	if (enable2FA.checked && user.twofa_enabled && method === user.twofa_method) {
-		return alert("Nothing changed.");
-	}
-
-	if (!enable2FA.checked && !user.twofa_enabled) {
-		return alert("Nothing changed.");
-	}
-
-	let res: Response | null = null;
-
-	if (enable2FA.checked && (method === 'email' || method === 'app')) {
-
-		if (!user.password_hash) {
-			  alert("You don't have password, set a password first.");
-			  return;
-			}
-		
-		res = await fetch('/api/2fa/send-code', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ twofaMethod: method , email: user.email })
-		});
-
-		if (res && res.ok) {
+		if (enable2FA.checked && (method === 'email' || method === 'app')) {
+			if (!user.password_hash) return alert("You don't have password, set a password first.");
+			const sendRes = await fetch('/api/2fa/send-code', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ twofaMethod: method, email: user.email })});
+			if (!sendRes.ok) { alert('Error sending verification code.'); return renderProfile(); }
 			if (method === 'app') {
-
-				const { qrCodeDataURL } = await res.json();
-				let qrWindow = window.open('', 'QR Code', 'width=500,height=600,resizable=yes');
-
-				if (qrWindow) {
-					qrWindow.document.open();
-					qrWindow.document.write(`<h3>Scan this in your Authenticator App</h3>`);
-					qrWindow.document.write(`<img src="${qrCodeDataURL}" />`);
-					qrWindow.document.close();
-					qrWindow.focus();
-				}	
+				const { qrCodeDataURL } = await sendRes.json();
+				const w = window.open('', 'QR Code', 'width=500,height=600,resizable=yes');
+				if (w) { w.document.write(`<h3>Scan this in your Authenticator App</h3><img src="${qrCodeDataURL}" />`); }
 			}
-			
-			const code = prompt('Enter the verification code :');
-			if (code) {
-
-				// console.log('save-2fa clicked; user=', user, 'method=', method);
-
-
-				// let password: string | null = null;
-				// if (user.oauth_provider) {
-				// 	password = prompt("To activate 2fa, confirm, set or reset your password:");
-				// if (!password || password.length < 8) {
-				// 	alert("Password must be at least 8 characters.");
-				// 	return;
-				// }
-				// }
-
-				const verifyRes = await fetch('/api/2fa/verify-code', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ twofaMethod: method, email: user.email, code})
-				});
-			
-				if (verifyRes.ok) {
-				try {const res = await fetch('/api/2fa/change', {
-					method: 'PATCH',
-					credentials: 'include',
-					headers: {
-						'Content-Type': 'application/json',
-					},
-					body: JSON.stringify({ twofaMethod: method, email: user.email})
-					});
-					if (res.ok) {
-					alert('Updated!');
-					} else {
-					const msg = await res.text();
-					alert('Error: ' + msg);
-					}
-				} catch (err) {
-					console.error(err);
-					alert("Something went wrong while updating your profile.");
-				}
-			} else {
-				alert('Verification failed.');}
-			}
-			}
+			const container = document.getElementById('twofa-verification-container');
+			if (!container) return;
+			container.innerHTML = `
+				<div class="mt-4 p-4 border rounded bg-gray-100 text-black">
+					<p class="mb-2">Enter the verification code:</p>
+					<form id="verify-2fa-form" class="flex flex-col gap-2">
+						<input type="text" name="code" placeholder="123456" class="p-2 border flex-grow" />
+						<div class="flex gap-2">
+							<button type="submit" class="bg-blue-700 text-white px-4 py-2 rounded">Verify</button>
+							<button type="button" id="cancel-2fa" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">Cancel</button>
+						</div>
+					</form>
+				</div>`;
+			document.getElementById('cancel-2fa')?.addEventListener('click', () => route('/profile'));
+			document.getElementById('verify-2fa-form')?.addEventListener('submit', async ev => {
+				ev.preventDefault();
+				const fd = new FormData(ev.target as HTMLFormElement);
+				const code = fd.get('code')?.toString().trim();
+				if (!code) return alert('Please enter the code');
+				const verify = await fetch('/api/2fa/verify-code', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ twofaMethod: method, email: user.email, code })});
+				if (!verify.ok) return alert('Verification failed.');
+				const changeRes = await fetch('/api/2fa/change', { method:'PATCH', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ twofaMethod: method, email: user.email })});
+				if (changeRes.ok) { alert('Updated!'); renderProfile(); } else { alert('Error: ' + await changeRes.text()); }
+			});
+		} else if (!enable2FA.checked && user.twofa_enabled) {
+			const disableRes = await fetch('/api/2fa/change', { method:'PATCH', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ twofaMethod: null, email: user.email })});
+			if (disableRes.ok) { alert('2FA disabled'); renderProfile(); } else { alert('Error: ' + await disableRes.text()); }
 		}
-		renderProfile();
-});
+	});
+
 }
 
 // New profile HTML with toggleable edit panel
@@ -426,6 +393,7 @@ function renderProfileHTML(user: User): string {
 				<label for="avatar-upload" class="cursor-pointer bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-white">Change Avatar</label>
 				<button type="submit" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded">Save Avatar</button>
 			</form>
+			<div id="twofa-verification-container" class="text-sm"></div>
 			<form id="profile-info-form" class="space-y-3">
 				<div class="flex gap-2 flex-wrap items-center">
 					<input type="text" name="display_name" value="${user.display_name}" placeholder="Display name" class="flex-grow p-2 rounded bg-gray-900 text-white text-sm border border-gray-600 focus:border-indigo-500 focus:outline-none" />
@@ -471,11 +439,6 @@ export type User = {
   }; 
 
 export async function renderProfile() {
-	// const userId = localStorage.getItem('userId');
-	// if (!userId) {
-	//   alert("Please login");
-	//   return route('/login');
-	// }
   
 	const res = await fetch('/api/profile', {
 	  method: 'GET',
@@ -495,9 +458,6 @@ export async function renderProfile() {
 	try {
 	setContent(renderProfileHTML(user));
 	setProfileEvents(user);
-	// setTimeout(() => {
-	// 	document.getElementById('welcome-banner')?.remove();
-	//   }, 2000);
 	} catch {
 		setContent(`<div class="text-white-600">Not authorized to view this page.</div>`);
 	}
@@ -505,13 +465,6 @@ export async function renderProfile() {
 
   export async function logout(): Promise<void> {
 	  try {
-		
-		// const userId = localStorage.getItem('userId');
-		  
-		//   if (!userId) {
-		// 	  alert("Please login");
-		// 	  return route('/login');
-		//   }
   
 		  const response = await fetch('/api/logout', {
 			method: 'POST',
@@ -648,88 +601,87 @@ export async function renderUserProfile(userId: number) {
 	</div>
 	`;
 
-    // ---- Friend buttons / self link ----
-    if (currUser.type === "loggedInUser") {
-      if (!isSelf) {
-        if (user.friend_status === "adding") {
-          friendButtons = `
-            <div class="text-white-600">This user has sent you a friend request</div>
-            <div class="flex gap-2 mb-8">
-              <button class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded" onclick="window.acceptFriend(${user.id})">Accept</button>
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
-              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-            </div>`;
-        } else if (user.friend_status === "pending") {
-          friendButtons = `
-            <div class="text-white-600">Awaiting response to your friend request.</div>
-            <div class="flex gap-2 mb-8">
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Cancel request</button>
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
-              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-            </div>`;
-        } else if (user.friend_status === "accepted" || user.friend_status === "added") {
-          friendButtons = `
-            <div class="text-white-600">You are friends.</div>
-            <div class="flex gap-2 mb-8">
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Unfriend</button>
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
-              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-            </div>`;
-        } else if (user.friend_status === "blocked") {
-          friendButtons = `
-            <div class="flex gap-2 mb-8">
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${user.id})">Unblock</button>
-            </div>`;
-        } else {
-          friendButtons = `
-            <div class="flex gap-2 mb-8">
-              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded" onclick="window.addFriend(${user.id})">Add Friend</button>
-              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${user.id})">Block</button>
-              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-            </div>`;
-        }
-      } else {
-        goProfile = `<a href="/profile" data-link class="text-white-400 hover:underline">Manage your profile</a>`;
-      }
-    }
-
-    // ---- Render ----
-    setContent(`
-      <div class="flex justify-between items-start p-4">
-        <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
-      </div>
-
-      <div class="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl shadow-xl">
-        <div class="flex items-center gap-6 mb-6">
-          <img src="${user.avatar_url}" class="w-24 h-24 rounded-full border-4 border-indigo-500" />
-          <div>
-            <h1 class="text-3xl font-bold">${user.display_name}</h1>
-            <p class="text-sm text-gray-400">Status: ${user.account_status}</p>
-            <p class="text-sm text-gray-400">Created: ${formatDate(user.created_at)}</p>
-            <p class="text-sm text-gray-400">Last Online: ${formatDate(user.last_online)}</p>
-          </div>
-        </div>
-
-        <div class="flex gap-4 mb-6">
-          <div class="bg-gray-700 px-4 py-2 rounded">🏆 Wins: <strong>${user.wins}</strong></div>
-          <div class="bg-gray-700 px-4 py-2 rounded">💥 Losses: <strong>${user.losses}</strong></div>
-        </div>
-
-        ${friendButtons}
-        ${goProfile}
-
-        <div class="mt-8">
-          ${historyBlock}
-        </div>
-      </div>
-    `);
-  } catch (err) {
-    setContent(`<div class="text-red-500 text-center">Failed to load profile.</div>`);
+if (currUser.type === "loggedInUser") {
+	if (!isSelf) {
+	  if (user.friend_status === "adding") {
+		friendButtons = `
+		  <div class="text-white-600">This user has sent you a friend request</div>
+		  <div class="flex gap-2 mb-8">
+			<button class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded" onclick="window.acceptFriend(${JSON.stringify(user.id)})">Accept</button>
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
+			<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+            <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
+   	  		</div>`;
+	  } else if (user.friend_status === "pending") {
+		friendButtons = `
+		  <div class="text-white-600">Awaiting response to your friend request.</div>
+		  <div class="flex gap-2 mb-8">
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${JSON.stringify(user.id)})">Cancel request</button>
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
+			<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+            <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
+		  </div>`;
+	  } else if (user.friend_status === "accepted" || user.friend_status === "added") {
+		friendButtons = `
+		  <div class="text-white-600">You are friends.</div>
+		  <div class="flex gap-2 mb-8">
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${JSON.stringify(user.id)})">Unfriend</button>
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
+			<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+            <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
+		  </div>`;
+	  } else if (user.friend_status === "blocked") {
+		friendButtons = `
+		  <div class="flex gap-2 mb-8">
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${JSON.stringify(user.id)})">Unblock</button>
+		  </div>`;
+	  } else if (!user.friend_status) {
+		friendButtons = `
+		  <div class="flex gap-2 mb-8">
+			<button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded" onclick="window.addFriend(${JSON.stringify(user.id)})">Add Friend</button>
+			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
+			<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+            <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
+		  </div>`;
+	  }
+	} else {
+	  goProfile = `<a href="/profile" data-link class="text-white-400 hover:underline">Manage your profile</a>`;
+	}
   }
+  
+    // ---- Render ----
+	setContent(`
+		<div class="flex justify-between items-start p-4">
+		  <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
+		</div>
+	
+		<div class="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl shadow-xl">
+		  <div class="flex items-center gap-6 mb-6">
+			<img src="${user.avatar_url}" class="w-24 h-24 rounded-full border-4 border-indigo-500" />
+			<div>
+			  <h1 class="text-3xl font-bold">${escapeHTML(user.display_name)}</h1>
+			  <p class="text-sm text-gray-400">Status: ${user.account_status}</p>
+			  <p class="text-sm text-gray-400">Created: ${formatDate(user.created_at)}</p>
+			  <p class="text-sm text-gray-400">Last Online: ${formatDate(user.last_online)}</p>
+			</div>
+		  </div>
+	
+		  <div class="flex gap-4 mb-6">
+			<div class="bg-gray-700 px-4 py-2 rounded">🏆 Wins: <strong>${user.wins}</strong></div>
+			<div class="bg-gray-700 px-4 py-2 rounded">💥 Losses: <strong>${user.losses}</strong></div>
+		  </div>
+	
+		  ${friendButtons}
+		  ${goProfile}
+	
+		  <div class="mt-8">
+			${historyBlock}
+		  </div>
+		</div>
+	  `);
+	} catch (err) {
+	  setContent(`<div class="text-red-500 text-center">Failed to load profile. It may not exist. </div>`);
+	}
 }
 
 export function getUserInfo() {
@@ -750,8 +702,8 @@ export function renderLogin() {
 
 	const userId = localStorage.getItem('userId');
 	if (userId) {
-		alert("You are already logged in");
-		route('/profile');
+		// Already authenticated: go straight to home (no popup)
+		route('/home');
 		return;
 	}
 
@@ -799,6 +751,10 @@ export function renderLogin() {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ email, password })
 		  });
+
+		  if (res.status === 429) {
+			throw new Error("Too many login attempts. Please wait a few minutes.");
+		  }
 
 		  if (!res.ok) {
 			const msg = (await res.text()) || '';
@@ -862,7 +818,6 @@ export function renderLogin() {
 			  }
 	  });	  
 }
-
 
 // Simple prompt-based private chat starter
 (window as any).startPrivateChat = async (userId: number, displayName?: string) => {

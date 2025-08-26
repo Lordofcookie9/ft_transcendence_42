@@ -470,19 +470,24 @@ module.exports = function registerTournamentRoutes(fastify) {
     }
   });
 
-  // Create/get private room for a match; first caller becomes host
+  // Create/get room for a tournament match; P1 must be host (left), P2 guest (right)
   fastify.post('/api/tournament/:id/match/:mid/room', { preValidation: [fastify.authenticate] }, async (req, reply) => {
     try {
       const lobbyId = Number(req.params.id);
       const matchId = Number(req.params.mid);
       const me = req.user.id;
+
+      // Load the match
       const m = await fastify.db.get(
-        `SELECT * FROM tournament_matches WHERE id = ? AND lobby_id = ?`,
+        `SELECT id, lobby_id, p1_user_id, p2_user_id, p1_alias, p2_alias, room_id, status
+          FROM tournament_matches
+          WHERE id = ? AND lobby_id = ?`,
         [matchId, lobbyId]
       );
       if (!m) return reply.code(404).send({ error: 'match_not_found' });
-      if (m.status === 'finished') return reply.code(400).send({ error: 'match_finished' });
-      if (Number(m.p1_user_id) !== me && Number(m.p2_user_id) !== me) {
+
+      // Must be one of the two players
+      if (Number(m.p1_user_id) !== Number(me) && Number(m.p2_user_id) !== Number(me)) {
         return reply.code(403).send({ error: 'not_in_match' });
       }
       if (!m.p1_user_id || !m.p2_user_id) return reply.code(400).send({ error: 'opponent_missing' });
@@ -507,12 +512,14 @@ module.exports = function registerTournamentRoutes(fastify) {
           return reply.send({ ok: true, room_id: again.room_id });
         }
       }
-      return reply.send({ ok: true, room_id: m.room_id });
+
+      return reply.send({ ok: true, room_id: roomId });
     } catch (err) {
-      req.log && req.log.error && req.log.error({ err }, 'join_match_room_failed');
-      return reply.code(500).send({ error: 'join_match_room_failed' });
+      req.log?.error({ err }, 'join_match_room_failed');
+      return reply.code(500).send({ error: 'internal_error' });
     }
   });
+
 
   // Mark match complete; compute winner; when the entire round finishes, build the next round randomly.
   fastify.post('/api/tournament/:id/match/:mid/complete', async (req, reply) => {

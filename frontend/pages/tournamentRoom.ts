@@ -33,7 +33,7 @@ export async function renderOnlineTournamentRoom() {
     return;
   }
 
-  // Base UI with a single, controllable Start button for HOST
+  // Base UI
   setContent(`
     <a
       href="/tournament-online?lobby=${lobbyId}"
@@ -66,66 +66,103 @@ export async function renderOnlineTournamentRoom() {
 
   const container = document.getElementById('pong-root') as HTMLElement | null;
   if (!container) return;
+
   const hostControls = document.getElementById('host-controls') as HTMLDivElement | null;
   const btnStart = document.getElementById('btn-start') as HTMLButtonElement | null;
   const startHint = document.getElementById('start-hint') as HTMLDivElement | null;
 
-  // Identity + alias help
-  let me: any = null;
-  try { me = await getUserInfo(); } catch { me = null; }
-  const myId: number | null = me?.id ?? null;
+  // Identity (only to map bracket P1/P2 to room host/guest)
+  // getUserInfo is synchronous and returns an object with userId, not id
+  const userInfo = getUserInfo();
+  const myId: number | null = userInfo?.type === 'loggedInUser' ? Number(userInfo.userId) : null;
 
-  // Join room for role & names
+  // Join room (role + room default names; bracket will override names)
+  const WAITING = '— waiting —';
   let role: 'left' | 'right' = 'left';
   let hostAlias = 'P1';
-  let guestAlias = '— waiting —';
+  let guestAlias = WAITING;
   try {
     const res = await fetch(`/api/game/room/${roomId}/join`, { method: 'POST', credentials: 'include' });
     const data = await res.json();
     if (!res.ok) throw new Error(data?.error || `Join failed (${res.status})`);
     role = data.role;
     hostAlias  = data.host_alias || 'P1';
-    guestAlias = data.guest_alias || '— waiting —';
+    guestAlias = data.guest_alias || WAITING;
   } catch (e: any) {
     setContent(`<div class="p-6 text-red-400">Could not join room: ${escapeHtml(e?.message || '')}</div>`);
     return;
   }
 
-  // Snapshot to map bracket P1 ↔ room host/guest for winner_slot & p1/p2 score mapping
+  // ---- Read tournament snapshot and compute a reliable mapping using USER IDs + ROLE ----
   let match: MatchLite | null = null;
-  let bracketP1Side: 'host' | 'guest' = 'host';
   let bracketP1Alias: string | null = null;
   let bracketP2Alias: string | null = null;
+  let bracketP1Side: 'host' | 'guest' = 'host'; // which room side corresponds to bracket P1
+
   try {
     const res = await fetch(`/api/tournament/${lobbyId}`, { credentials: 'include' });
     const snap = await res.json();
     if (res.ok && snap?.state?.rounds) {
+      // find my match
       outer:
       for (const r of snap.state.rounds as MatchLite[][]) {
-        for (const m of r) {
-          if (m.id === matchId) { match = m; break outer; }
-        }
+        for (const m of r) { if (m.id === matchId) { match = m; break outer; } }
       }
       bracketP1Alias = match?.p1_alias || null;
       bracketP2Alias = match?.p2_alias || null;
-      if (bracketP1Alias) {
-        if (bracketP1Alias === hostAlias) bracketP1Side = 'host';
-        else if (bracketP1Alias === guestAlias) bracketP1Side = 'guest';
+
+      // Determine whether room HOST is bracket P1 or P2 using myId + role
+      if (match && myId) {
+        if (role === 'left') {
+          if (myId === match.p1_user_id) bracketP1Side = 'host';
+          else if (myId === match.p2_user_id) bracketP1Side = 'guest';
+        } else { // role === 'right'
+          if (myId === match.p2_user_id) bracketP1Side = 'host';  // host is the opponent (bracket P1)
+          else if (myId === match.p1_user_id) bracketP1Side = 'guest';
+        }
       }
+
+      // Apply bracket aliases to UI immediately (if available)
+      const aliasForHost  = (bracketP1Side === 'host') ? (bracketP1Alias || null) : (bracketP2Alias || null);
+      const aliasForGuest = (bracketP1Side === 'host') ? (bracketP2Alias || null) : (bracketP1Alias || null);
+      if (aliasForHost)  hostAlias  = aliasForHost;
+      if (aliasForGuest) guestAlias = aliasForGuest;
     }
   } catch {}
 
-  // UI helpers
+  // ---------- Stable name handling (bracket alias is the source of truth) ----------
   const updateNameplates = () => {
-    const p1Name = localStorage.getItem('p1') || hostAlias;
-    const p2Name = localStorage.getItem('p2') || guestAlias;
     const s1 = localStorage.getItem('p1Score') || '0';
     const s2 = localStorage.getItem('p2Score') || '0';
     const el1 = document.getElementById('player1-info');
     const el2 = document.getElementById('player2-info');
-    if (el1) el1.innerHTML = `${escapeHtml(p1Name)}: ${escapeHtml(s1)}`;
-    if (el2) el2.innerHTML = `${escapeHtml(p2Name)}: ${escapeHtml(s2)}`;
+    if (el1) el1.innerHTML = `${escapeHtml(hostAlias)}: ${escapeHtml(s1)}`;
+    if (el2) el2.innerHTML = `${escapeHtml(guestAlias)}: ${escapeHtml(s2)}`;
   };
+
+  let guestJoined = guestAlias && guestAlias !== WAITING;
+
+  const setHostAliasMaybe = (name?: string | null) => {
+    const n = (name || '').trim();
+    if (!n || n === WAITING) return;
+    hostAlias = n;
+    try { localStorage.setItem('p1', hostAlias); } catch {}
+    updateNameplates();
+    try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { left: hostAlias } })); } catch {}
+  };
+  const setGuestAliasMaybe = (name?: string | null) => {
+    const n = (name || '').trim();
+    if (!n || n === WAITING) return;
+    guestAlias = n;
+    guestJoined = true;
+    try { localStorage.setItem('p2', guestAlias); } catch {}
+    if (btnStart) btnStart.disabled = false;
+    if (startHint) startHint.textContent = 'Opponent is here. You can start!';
+    updateNameplates();
+    try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { right: guestAlias } })); } catch {}
+  };
+
+  // Seed UI with (maybe) bracket-driven aliases
   updateNameplates();
   const onScore = () => updateNameplates();
   window.addEventListener('pong:score', onScore as any);
@@ -163,7 +200,6 @@ export async function renderOnlineTournamentRoom() {
   let pushGuestInputToEngine: ((input: { up: boolean; down: boolean }) => void) | null = null;
   let applyStateFromHost: ((state: any) => void) | null = null;
   let resendTimer: number | null = null;
-  let guestJoined = guestAlias && guestAlias !== '— waiting —';
   let engineStarted = false;
   let postedComplete = false;
 
@@ -231,78 +267,112 @@ export async function renderOnlineTournamentRoom() {
   if (role === 'left' && hostControls && btnStart) {
     hostControls.classList.remove('hidden');
     btnStart.disabled = !guestJoined;
-    if (guestJoined) startHint && (startHint.textContent = 'Opponent is here. You can start!');
+    if (guestJoined && startHint) startHint.textContent = 'Opponent is here. You can start!';
   }
 
-  ws.addEventListener('open', () => {
-    const myAlias = (myId && myId === (role === 'left' ? match?.p1_user_id : match?.p2_user_id))
-      ? (role === 'left' ? bracketP1Alias || hostAlias : bracketP2Alias || guestAlias)
-      : (localStorage.getItem('display_name') || 'Player');
-    ws.send(JSON.stringify({ type: 'hello', alias: myAlias, role }));
-  });
+  // Helpers that always prefer bracket alias, not usernames
+  const preferBracketForHost = (incoming?: string | null) => {
+    const bracketHost = (bracketP1Side === 'host') ? (bracketP1Alias || null) : (bracketP2Alias || null);
+    return (bracketHost && bracketHost.trim()) ? bracketHost : (incoming || '');
+  };
+  const preferBracketForGuest = (incoming?: string | null) => {
+    const bracketGuest = (bracketP1Side === 'host') ? (bracketP2Alias || null) : (bracketP1Alias || null);
+    return (bracketGuest && bracketGuest.trim()) ? bracketGuest : (incoming || '');
+  };
 
+  // Attach message handler BEFORE 'open'
   ws.addEventListener('message', (ev) => {
     let msg: any;
     try { msg = JSON.parse(ev.data); } catch { return; }
 
-    if (msg.type === 'hello' && msg.alias) {
-      // Update opponent alias and enable Start for host
-      if (role === 'left') {
-        localStorage.setItem('p2', String(msg.alias));
-        guestAlias = String(msg.alias);
-        guestJoined = true;
-        updateNameplates();
-        if (btnStart) btnStart.disabled = false;
-        if (startHint) startHint.textContent = 'Opponent is here. You can start!';
-        // Tell engine (if started) names
-        try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { right: guestAlias } })); } catch {}
-        // Auto-start safeguard: if host forgets to click Start, begin automatically shortly after both present
-        if (!engineStarted) {
-          setTimeout(() => { if (!engineStarted && guestJoined) startHostGame(); }, 1200);
-        }
-      } else {
-        localStorage.setItem('p1', String(msg.alias));
-        hostAlias = String(msg.alias);
-        updateNameplates();
-        try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { left: hostAlias } })); } catch {}
+    switch (msg.type) {
+      case 'tournament:aborted': {
+        try { alert(String(msg.message || 'A player has left the tournament, you will be brought home.')); } catch {}
+        try { route('/home'); } catch { location.href = '/home'; }
+        return;
       }
-      return;
-    }
-
-    if (role === 'left' && msg.type === 'input' && pushGuestInputToEngine) {
-      pushGuestInputToEngine({ up: !!msg.up, down: !!msg.down });
-      return;
-    }
-    if (role === 'right' && msg.type === 'state' && applyStateFromHost) {
-      applyStateFromHost(msg.state);
-      try {
-        const scores = (msg.state && (msg.state.scores || {})) || {};
-        const left  = Number((scores.left  ?? msg.state?.leftScore  ?? msg.state?.p1Score ?? msg.state?.scoreLeft)  ?? 0);
-        const right = Number((scores.right ?? msg.state?.rightScore ?? msg.state?.p2Score ?? msg.state?.scoreRight) ?? 0);
-        if (Number.isFinite(left) && Number.isFinite(right)) {
-          localStorage.setItem('p1Score', String(left));
-          localStorage.setItem('p2Score', String(right));
+      case 'opponent:joined': {
+        if (role === 'left' && msg.role === 'guest') setGuestAliasMaybe(preferBracketForGuest(msg.alias));
+        else if (role === 'right' && msg.role === 'host') setHostAliasMaybe(preferBracketForHost(msg.alias));
+        return;
+      }
+      case 'hello': {
+        if (!msg.alias) return; // ignore invalid
+        if (role === 'left') {
+          localStorage.setItem('p2', String(msg.alias));
+          guestAlias = preferBracketForGuest(String(msg.alias));
+          guestJoined = true;
           updateNameplates();
-          window.dispatchEvent(new CustomEvent('pong:score', { detail: { left, right } }));
+          if (btnStart) btnStart.disabled = false;
+          if (startHint) startHint.textContent = 'Opponent is here. You can start!';
+          try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { right: guestAlias } })); } catch {}
+          if (!engineStarted) setTimeout(() => { if (!engineStarted && guestJoined) startHostGame(); }, 1200);
+        } else {
+          localStorage.setItem('p1', String(msg.alias));
+          hostAlias = preferBracketForHost(String(msg.alias));
+          updateNameplates();
+          try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { left: hostAlias } })); } catch {}
         }
-      } catch {}
-      return;
-    }
-
-    if (msg.type === 'gameover') {
-      updateNameplates();
-      showEndOverlay(msg.detail);
-      if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
-      return;
+        return;
+      }
+      case 'input': {
+        if (role === 'left' && pushGuestInputToEngine) {
+          pushGuestInputToEngine({ up: !!msg.up, down: !!msg.down });
+        }
+        return;
+      }
+      case 'state': {
+        if (role === 'right' && applyStateFromHost) {
+          applyStateFromHost(msg.state);
+          try {
+            const scores = (msg.state && (msg.state.scores || {})) || {};
+            const left  = Number((scores.left  ?? msg.state?.leftScore  ?? msg.state?.p1Score ?? msg.state?.scoreLeft)  ?? 0);
+            const right = Number((scores.right ?? msg.state?.rightScore ?? msg.state?.p2Score ?? msg.state?.scoreRight) ?? 0);
+            if (Number.isFinite(left) && Number.isFinite(right)) {
+              try { localStorage.setItem('p1Score', String(left)); } catch {}
+              try { localStorage.setItem('p2Score', String(right)); } catch {}
+              updateNameplates();
+              try { window.dispatchEvent(new CustomEvent('pong:score', { detail: { left, right } })); } catch {}
+            }
+          } catch {}
+        }
+        return;
+      }
+      case 'gameover': {
+        updateNameplates();
+        showEndOverlay(msg.detail);
+        if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
+        return;
+      }
+      default:
+        return;
     }
   });
 
+  // Announce ourselves using our BRACKET alias (never username)
+  ws.addEventListener('open', () => {
+    // Choose my tournament alias from the bracket mapping
+    let myBracketAlias: string | null = null;
+    if (role === 'left') {
+      myBracketAlias = (bracketP1Side === 'host') ? (bracketP1Alias || null) : (bracketP2Alias || null);
+    } else {
+      myBracketAlias = (bracketP1Side === 'host') ? (bracketP2Alias || null) : (bracketP1Alias || null);
+    }
+    const myAlias = (myBracketAlias && myBracketAlias.trim())
+      ? myBracketAlias
+      : (localStorage.getItem('display_name') || 'Player');
 
+    // Update my own UI immediately with my alias
+    if (role === 'left') setHostAliasMaybe(myAlias);
+    else setGuestAliasMaybe(myAlias);
+
+    // Notify opponent/server
+    ws.send(JSON.stringify({ type: 'hello', alias: myAlias, role }));
+  });
+
+  // (Removed duplicate startHostGame definition; original earlier definition handles host start & auto-start)
   if (role === 'left' && btnStart) {
-    btnStart.addEventListener('click', () => {
-      if (!guestJoined) return;
-      startHostGame();
-    });
+    btnStart.addEventListener('click', () => { if (!guestJoined) return; startHostGame(); });
   }
 
   // Guest engine
@@ -338,14 +408,14 @@ export async function renderOnlineTournamentRoom() {
       applyState: (register: any) => { applyStateFromHost = register; },
     });
 
+    // Seed engine with bracket-driven names
     try {
-      // initialize nameplates for the engine
       const detail: any = {};
-      const maybeLeft  = (localStorage.getItem('p1') || hostAlias  || '').trim();
-      const maybeRight = (localStorage.getItem('p2') || guestAlias || '').trim();
-      if (maybeLeft) detail.left = maybeLeft;
-      if (maybeRight && maybeRight !== '— waiting —') detail.right = maybeRight;
-      window.dispatchEvent(new CustomEvent('pong:setNames', { detail }));
+      if (hostAlias) detail.left = hostAlias;
+      if (guestAlias !== WAITING) detail.right = guestAlias;
+      if (Object.keys(detail).length) {
+        window.dispatchEvent(new CustomEvent('pong:setNames', { detail }));
+      }
     } catch {}
   }
 }
