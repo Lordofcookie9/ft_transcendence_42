@@ -166,11 +166,20 @@ function setProfileEvents(user: User) {
   
 	// Unified profile info form (name + email)
 	const profileInfoForm = document.getElementById('profile-info-form') as HTMLFormElement | null;
+	// Inject an inline error container if not present
+	if (profileInfoForm && !profileInfoForm.querySelector('#profile-info-error')) {
+		const div = document.createElement('div');
+		div.id = 'profile-info-error';
+		div.className = 'hidden mt-2 bg-red-900/70 border border-red-600 text-red-200 px-3 py-2 rounded text-sm';
+		profileInfoForm.appendChild(div);
+	}
 	profileInfoForm?.addEventListener('submit', async (e) => {
 		e.preventDefault();
 		const form = e.target as HTMLFormElement;
 		const newName = (form.display_name?.value || '').trim();
 		const newEmail = (form.email?.value || '').trim();
+		const errorBox = form.querySelector('#profile-info-error') as HTMLDivElement | null;
+		if (errorBox) { errorBox.classList.add('hidden'); errorBox.textContent = ''; }
 		const origName = localStorage.getItem('display_name')?.trim() || user.display_name;
 		const origEmail = user.email;
 		const tasks: Promise<Response>[] = [];
@@ -189,7 +198,22 @@ function setProfileEvents(user: User) {
 			const failed = results.find(r => !r.ok);
 			if (failed) {
 				const msg = await failed.text();
-				alert('Update failed: ' + msg);
+				if (errorBox) {
+					let text = msg || 'Update failed';
+					// Backend sends JSON for duplicate name; attempt to parse
+					try {
+						const j = JSON.parse(msg);
+						if (j?.error) text = j.error;
+					} catch {}
+					if (/display name already in use/i.test(text) || /already exists/i.test(text)) {
+						errorBox.textContent = 'That username is already used.';
+					} else {
+						errorBox.textContent = text;
+					}
+					errorBox.classList.remove('hidden');
+				} else {
+					alert('Update failed: ' + msg);
+				}
 				return;
 			}
 			if (newName && newName !== origName) localStorage.setItem('display_name', newName);
@@ -197,7 +221,7 @@ function setProfileEvents(user: User) {
 			renderProfile();
 		} catch (err) {
 			console.error(err);
-			alert('Network error.');
+			if (errorBox) { errorBox.textContent = 'Network error.'; errorBox.classList.remove('hidden'); } else { alert('Network error.'); }
 		}
 	});
 

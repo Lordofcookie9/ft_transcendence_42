@@ -6,7 +6,7 @@
 /*   By: rrichard <rrichard@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/11 12:22:46 by rrichard          #+#    #+#             */
-/*   Updated: 2025/08/27 13:32:10 by rrichard         ###   ########.fr       */
+/*   Updated: 2025/08/27 15:34:40 by rrichard         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -14,9 +14,9 @@ import { SequenceNode, SelectorNode, Context, Node } from "./BehaviorTreeNodes.j
 import { anticipateWithInvisibleBall, makeHandleBallAwayNode } from "./AIActions.js";
 import { ballMovingAwayFromAI, ballMovingTowardAI } from "./AIConditions.js";
 
-const awayEasyNode = makeHandleBallAwayNode('center', { aimNoiseSigmaFactor: 0.18 });
-const awayMediumNode = makeHandleBallAwayNode('followPlayer', { mirrorFactor: 0.6, aimNoiseSigmaFactor: 0.12 });
-const awayHardNode = makeHandleBallAwayNode('anticipate', { anticipationDt: 0.45, aimNoiseSigmaFactor: 0.06 });
+const awayCenterNode = makeHandleBallAwayNode('center', { aimNoiseSigmaFactor: 0.18 });
+const awayFollowNode = makeHandleBallAwayNode('followPlayer', { mirrorFactor: 0.6, aimNoiseSigmaFactor: 0.12 });
+const awayPatrolNode = makeHandleBallAwayNode('patrol')
 
 export class PongBehaviorTree
 {
@@ -31,7 +31,7 @@ export class PongBehaviorTree
 			]),
 			new SequenceNode([
 				ballMovingAwayFromAI,
-				awayMediumNode,
+				awayPatrolNode,
 			]),
 		]);
 	}

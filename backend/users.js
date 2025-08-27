@@ -757,15 +757,27 @@ fastify.get('/api/user/:id', async (req, reply) => {
   
     if (!oldName) return reply.code(404).send({ error: 'User not found' });
   
-    if (trimmedName === oldName) {
+    if (!trimmedName) {
+      return reply.code(400).send({ error: 'Display name required' });
+    }
+
+    if (trimmedName === oldName.display_name) {
       return reply.code(400).send({ error: 'No changes made' });
     }
-  
 
+    try {
       await db.run(
         `UPDATE users SET display_name = ? WHERE id = ?`,
         [trimmedName, req.user.id]
       );
+    } catch (err) {
+      // Handle UNIQUE constraint (duplicate display name)
+      if (err && err.message && /UNIQUE constraint failed:.*display_name/i.test(err.message)) {
+        return reply.code(409).send({ error: 'Display name already in use' });
+      }
+      req.log.error(err);
+      return reply.code(500).send({ error: 'Failed to update display name' });
+    }
 
     const updatedUser = await db.get(
       `SELECT id, email, display_name, avatar_url, created_at, last_online, account_status FROM users WHERE id = ?`,

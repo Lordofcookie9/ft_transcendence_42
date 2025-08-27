@@ -6,7 +6,7 @@
 /*   By: rrichard <rrichard@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/11 10:40:27 by rrichard          #+#    #+#             */
-/*   Updated: 2025/08/27 13:05:30 by rrichard         ###   ########.fr       */
+/*   Updated: 2025/08/27 15:15:22 by rrichard         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -73,8 +73,14 @@ export function predictBallYDiscrete(
 	return { y, time: Infinity };
 }
 
-function clamp(v: number, a: number, b: number) { return Math.max(a, Math.min(b, v)); }
-function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
+function clamp(v: number, a: number, b: number)
+{
+	return (Math.max(a, Math.min(b, v)));
+}
+function lerp(a: number, b: number, t: number)
+{
+	return (a + (b - a) * t);
+}
 
 // computeAITargetY : combine réel + distordu, clamp selon ce que la raquette peut atteindre, ajoute bruit.
 export function computeAITargetY(
@@ -89,7 +95,7 @@ export function computeAITargetY(
 	): { targetY: number, timeToImpact: number }
 {
 	const invisibleVxMultiplier = params?.invisibleVxMultiplier ?? 1.6;
-	const difficultyBlend = clamp(params?.difficultyBlend ?? 0.35, 0, 1); // valeur par défaut
+	const difficultyBlend = clamp(params?.difficultyBlend ?? 0.35, 0, 1);
 	const aimNoiseSigma = params?.aimNoiseSigma ?? ctx.aiPaddle.height * 0.12;
 	const dt = params?.dt ?? 1 / 480;
 
@@ -116,12 +122,13 @@ export function computeAITargetY(
 
 	// 5) clamp à ce que la raquette peut raisonnablement atteindre avant l'impact
 	const maxMove = ctx.aiPaddle.speed * timeToImpact;
-	const minReachCenter = ctx.aiPaddle.y - maxMove; // on considère y = centre de la raquette
+	const minReachCenter = ctx.aiPaddle.y - maxMove;
 	const maxReachCenter = ctx.aiPaddle.y + maxMove;
 	let target = clamp(blendedY, minReachCenter, maxReachCenter);
 
 	// 6) ajouter bruit d'aim (approx gaussienne Box-Muller)
-	if (aimNoiseSigma > 0) {
+	if (aimNoiseSigma > 0)
+	{
 		const u1 = Math.random() || 1e-10;
 		const u2 = Math.random();
 		const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
