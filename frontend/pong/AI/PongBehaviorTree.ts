@@ -6,13 +6,17 @@
 /*   By: rrichard <rrichard@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/08/11 12:22:46 by rrichard          #+#    #+#             */
-/*   Updated: 2025/08/19 17:53:50 by rrichard         ###   ########.fr       */
+/*   Updated: 2025/08/27 13:32:10 by rrichard         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 import { SequenceNode, SelectorNode, Context, Node } from "./BehaviorTreeNodes.js";
-import { followBall, anticipateWithInvisibleBall } from "./AIActions.js";
+import { anticipateWithInvisibleBall, makeHandleBallAwayNode } from "./AIActions.js";
 import { ballMovingAwayFromAI, ballMovingTowardAI } from "./AIConditions.js";
+
+const awayEasyNode = makeHandleBallAwayNode('center', { aimNoiseSigmaFactor: 0.18 });
+const awayMediumNode = makeHandleBallAwayNode('followPlayer', { mirrorFactor: 0.6, aimNoiseSigmaFactor: 0.12 });
+const awayHardNode = makeHandleBallAwayNode('anticipate', { anticipationDt: 0.45, aimNoiseSigmaFactor: 0.06 });
 
 export class PongBehaviorTree
 {
@@ -27,7 +31,7 @@ export class PongBehaviorTree
 			]),
 			new SequenceNode([
 				ballMovingAwayFromAI,
-				followBall,
+				awayMediumNode,
 			]),
 		]);
 	}
