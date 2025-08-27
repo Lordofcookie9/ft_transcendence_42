@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Transcendence</title>
+    <link href="/tailwind.css" rel="stylesheet" />
+    <script>
+      // Prevent page reloads on links
+      window.addEventListener("click", (e) => {
+        const el = e.target instanceof Element ? e.target.closest('a[data-link]') : null;
+        if (el) {
+          e.preventDefault();
+          const href = el.getAttribute("href");
+          if (href && window.route) window.route(href);
+        }
+    });
+    </script>
+  </head>
+  <body class="bg-gray-900 text-white">
+    <div id="app" class="p-4"></div>
+  <div id="modal-root" class="fixed inset-0 pointer-events-none"></div>
+    <script type="module" src="/compiled/main.js"></script>
+  </body>
+</html>
