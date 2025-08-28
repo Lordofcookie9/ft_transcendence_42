@@ -57,7 +57,7 @@ export async function renderRegister() {
 
 			<div class="mt-2 flex flex-col gap-2">
 				<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-400 rounded px-4 py-2 hover:bg-gray-100 text-black bg-white">
-					<img src="/uploads/42_Logo.svg" alt="42" class="w-6 h-6" />
+					<img src="/assets/42_Logo.svg" alt="42" class="w-6 h-6" />
 					<span class="font-medium">Continue with 42</span>
 				</button>
 			</div>
@@ -983,7 +983,7 @@ export function renderLogin() {
 
 		<div class="mt-2 flex flex-col gap-2">
 			<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-400 rounded px-4 py-2 hover:bg-gray-100 text-black bg-white">
-			<img src="/uploads/42_Logo.svg" alt="42" class="w-6 h-6" />
+			<img src="/assets/42_Logo.svg" alt="42" class="w-6 h-6" />
 			<span class="font-medium">Login with 42</span>
 			</button>
 		</div>

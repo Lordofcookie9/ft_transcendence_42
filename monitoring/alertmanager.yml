@@ -1,0 +1,14 @@
+global:
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from:  'Transcendance Alert <admapp.contact@gmail.com>'
+  smtp_auth_username: 'admapp.contact@gmail.com'
+  smtp_auth_password: 'iuhh wqdl solg gbuv'
+
+route:
+  receiver: 'mail-alerts'
+
+receivers:
+  - name: 'mail-alerts'
+    email_configs:
+      - to: 'admapp.contact@gmail.com'
+        send_resolved: true
