@@ -4,6 +4,42 @@ import { initPongGame } from "../pong/pong.js";
 import { updateChatBox, updateCounter } from './chat.js';
 import { route } from '../router.js';
 
+// --- Chat polling guard to prevent duplicate intervals across re-renders ---
+let chatPollTimer: number | undefined;
+
+function stopChatPolling() {
+  if (chatPollTimer !== undefined) {
+    clearInterval(chatPollTimer);
+    chatPollTimer = undefined;
+  }
+}
+
+function startChatPolling() {
+  // Clear any existing interval before starting a new one
+  stopChatPolling();
+
+  // Do an immediate refresh and then poll every 3s while on Home
+  // Also skip polling when the tab is hidden to avoid bursts on tab return
+  const tick = () => {
+    if (document.hidden) return;
+    updateChatBox().catch(() => {});
+  };
+
+  tick();
+  chatPollTimer = window.setInterval(tick, 3000);
+}
+
+function handleLeftOnce(message?: string) {
+  try {
+    const now = Date.now();
+    const last = Number(localStorage.getItem('player.left.ts') || '0');
+    if (now - last < 1500) return;
+    localStorage.setItem('player.left.ts', String(now));
+  } catch {}
+  try { alert(message || 'host left. Going back home'); } catch {}
+  try { route('/home'); } catch { location.href = '/home'; }
+}
+
 export function renderHome() {
   const alias = localStorage.getItem("alias") || "Guest";
   let userHtml = '';
@@ -92,7 +128,7 @@ export function renderHome() {
 
   document.getElementById('logout')?.addEventListener('click', logout);
   updateChatBox();
-  setInterval(updateChatBox, 3000);
+  startChatPolling();
   updateCounter(); // harmless if the element isn't present
 }
 
@@ -520,17 +556,9 @@ export async function renderPrivate1v1() {
     try { msg = JSON.parse(ev.data); } catch { return; }
 
       // go home on host leaving
-    if (msg.type === 'info' && typeof msg.message === 'string') {
-      try { alert(msg.message); } catch {}
-      try { route('/home'); } catch { location.href = '/home'; }
-      return;
-    }
+    if (msg.type === 'info' && typeof msg.message === 'string') { handleLeftOnce(msg.message); return; }
 
-    if (msg.type === 'opponent:left' && msg.role === 'host' && role === 'right') {
-      try { alert('host left. Going back home'); } catch {}
-      try { route('/home'); } catch { location.href = '/home'; }
-      return;
-    }
+    if (msg.type === 'opponent:left' && msg.role === 'host' && role === 'right') { handleLeftOnce('host left. Going back home'); return; }
     if (msg.type === 'hello' && msg.alias) {
       const name = String(msg.alias);
       if (role === 'left') {
@@ -713,3 +741,13 @@ window.startOnlineTournamentSetup = async function startOnlineTournamentSetup() 
   // Go to lobby page
   (window as any).route?.(`/tournament-online?lobby=${encodeURIComponent(String(lobbyId))}`);
 };
+
+
+// Ensure chat polling stops when navigating away
+window.addEventListener('beforeunload', stopChatPolling);
+window.addEventListener('popstate', stopChatPolling);
+
+
+// Expose a global stop to allow router to clean up when navigating away
+try { (window as any).__stopChatPolling = stopChatPolling; } catch {}
+

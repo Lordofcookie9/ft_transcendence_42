@@ -4,6 +4,46 @@ import { route } from '../router.js';
 import { getUserInfo } from '../users/userManagement.js';
 import { initPongGame } from '../pong/pong.js';
 
+function onBackToLobby(ev: Event, lobbyId: number) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  // ensure the match WS is closed so the server sees the host leaving
+  try { (window as any).__tournRoomCleanup?.(); } catch {}
+  const inProg = !!(window as any).__matchInProgress;
+  if (inProg) {
+    // host leaves mid-game: mirror the broadcast message locally for the leaver
+    try { alert('a host left mid game, the tournament is canceled. You will be brought home'); } catch {}
+    route('/home');
+    return false;
+  }
+  // not in progress (e.g., after gameover): safe to return to lobby
+  route(`/tournament-online?lobby=${lobbyId}`);
+  return false;
+}
+
+function handleAbortOnce(payload?: any) {
+  try {
+    const now = Date.now();
+    const last = Number(localStorage.getItem('tourn.abort.ts') || '0');
+    if (now - last < 1500) return;
+    localStorage.setItem('tourn.abort.ts', String(now));
+  } catch {}
+  try {
+    const lid = String(payload?.lobbyId || localStorage.getItem('tourn.lobby') || '');
+    if (lid) {
+      localStorage.removeItem('tourn.lobby');
+      localStorage.removeItem('tourn.match');
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('tourn.room2lobby.')) localStorage.removeItem(k);
+      }
+    }
+  } catch {}
+  try { (window as any).__matchInProgress = false; (window as any).__activeTournamentHostLobbyId = undefined; } catch {}
+      alert(String(payload?.message || 'a host left mid game, the tournament is canceled. You will be brought home'));
+  try { route('/home'); } catch { location.href = '/home'; }
+}
+
 type MatchLite = {
   id: number;
   round: number;
@@ -37,14 +77,14 @@ export async function renderOnlineTournamentRoom() {
   setContent(`
     <a
       href="/tournament-online?lobby=${lobbyId}"
-      onclick="route('/tournament-online?lobby=${lobbyId}')"
+      onclick="return onBackToLobby(event, ${lobbyId})"
       class="fixed top-4 left-4 z-[60] bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm"
     >← Back to lobby</a>
 
     <div class="text-center mt-10">
       <h1 class="text-3xl font-bold mb-2">Tournament Match</h1>
       <div class="text-gray-400 text-sm mb-1">
-        Lobby #${escapeHtml(String(lobbyId))} — Match #${escapeHtml(String(matchId))}
+         Match #${escapeHtml(String(matchId))}
       </div>
 
       <div id="host-controls" class="mt-3 hidden">
@@ -84,8 +124,22 @@ export async function renderOnlineTournamentRoom() {
   try {
     const res = await fetch(`/api/game/room/${roomId}/join`, { method: 'POST', credentials: 'include' });
     const data = await res.json();
+    if (res.status === 410 || String(data?.error || '') === 'tournament_cancelled') {
+      alert('This tournament was cancelled. You will be brought home.');
+      route('/home');
+      return;
+    }
     if (!res.ok) throw new Error(data?.error || `Join failed (${res.status})`);
     role = data.role;
+    // If I am the room host and this room belongs to a tournament, mark it globally
+    try {
+      const isRoomHost = (role === 'left');
+      if (isRoomHost && lobbyId) {
+        // Defer marking until we actually see gameplay traffic
+        (window as any).__activeTournamentHostLobbyId = String(lobbyId);
+        (window as any).__matchInProgress = false; // will flip to true on first state/input
+      }
+    } catch {}
     hostAlias  = data.host_alias || 'P1';
     guestAlias = data.guest_alias || WAITING;
   } catch (e: any) {
@@ -182,17 +236,24 @@ export async function renderOnlineTournamentRoom() {
     document.body.appendChild(el);
     el.querySelector<HTMLButtonElement>('#btn-back')?.addEventListener('click', () => {
       el.remove();
-      route(`/tournament-online?lobby=${encodeURIComponent(String(lobbyId))}`);
+      route('/tournament-online?lobby=' + encodeURIComponent(String(lobbyId)));
     });
   };
 
   // Build WebSocket
   const wsProto  = location.protocol === 'https:' ? 'wss' : 'ws';
-  const wsURL    = `${wsProto}://${location.host}/ws/game/${roomId}?role=${role}`;
-  const ws = new WebSocket(wsURL);
+  const __uid    = Number(localStorage.getItem('userId') || '0');
+  const ws = new WebSocket(`${wsProto}://${location.host}/ws/game/${roomId}/${(role === 'left') ? 'host' : 'guest'}?lobbyId=${encodeURIComponent(String(lobbyId))}&userId=${__uid}`);
+  // This tab is the authoritative source for "in progress" from the host's perspective.
+  (window as any).__matchInProgress = false;
 
   // Clean shutdown
-  const cleanup = () => { try { ws.close(1001, 'navigate'); } catch {} };
+  const cleanup = () => {
+    try { ws.close(1001, 'navigate'); } catch {}
+    try { (window as any).__activeTournamentHostLobbyId = undefined; } catch {}
+    try { (window as any).__matchInProgress = false; } catch {}
+  };
+  try { (window as any).__tournRoomCleanup = cleanup; } catch {}
   window.addEventListener('beforeunload', cleanup);
   window.addEventListener('popstate', cleanup);
 
@@ -226,7 +287,7 @@ export async function renderOnlineTournamentRoom() {
     try { msg = JSON.parse(ev.data); } catch { return; }
 
     if (msg && msg.type === 'tournament:aborted') {
-      try { alert(String(msg.message || 'A player has left the tournament, you will be brought home.')); } catch {}
+      try { alert(String(msg.message || 'a host left mid game, the tournament is canceled. You will be brought home')); } catch {}
       try { route('/home'); } catch { location.href = '/home'; }
       return;
     }
@@ -248,10 +309,12 @@ export async function renderOnlineTournamentRoom() {
     }
 
     if (role === 'left' && msg.type === 'input' && pushGuestInputToEngine) {
+      (window as any).__matchInProgress = true;
       pushGuestInputToEngine({ up: !!msg.up, down: !!msg.down });
       return;
     }
     if (role === 'right' && msg.type === 'state' && applyStateFromHost) {
+      (window as any).__matchInProgress = true;
       applyStateFromHost(msg.state);
       try {
         const scores = (msg.state && (msg.state.scores || {})) || {};
@@ -268,6 +331,8 @@ export async function renderOnlineTournamentRoom() {
     }
 
     if (msg.type === 'gameover') {
+      (window as any).__matchInProgress = false;
+      try { (window as any).__activeTournamentHostLobbyId = undefined; } catch {}
       updateNameplates();
       showEndOverlay(msg.detail);
       if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
@@ -329,6 +394,7 @@ export async function renderOnlineTournamentRoom() {
       if (bracketP1Side === 'host') { p1_score = hostScore; p2_score = guestScore; }
       else { p1_score = guestScore; p2_score = hostScore; }
 
+      try { (window as any).__matchInProgress = false; (window as any).__activeTournamentHostLobbyId = undefined; } catch {}
       const detail = winnerAlias !== '—' ? { winner: winnerAlias } : {};
       if (ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'gameover', detail })); } catch {}

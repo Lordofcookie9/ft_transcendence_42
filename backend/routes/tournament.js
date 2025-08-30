@@ -309,6 +309,7 @@ module.exports = function registerTournamentRoutes(fastify) {
         [lobbyId]
       );
       if (!lobby) return reply.code(404).send({ error: 'lobby_not_found' });
+      if (String(lobby.status) === 'cancelled') return reply.code(404).send({ error: 'tournament_cancelled' });
 
       const parts = await fastify.db.all(
         `SELECT tp.user_id, tp.alias, u.display_name
@@ -358,6 +359,7 @@ module.exports = function registerTournamentRoutes(fastify) {
         [lobbyId]
       );
       if (!lobby) return reply.code(404).send({ error: 'lobby_not_found' });
+      if (String(lobby.status) === 'cancelled') return reply.code(404).send({ error: 'tournament_cancelled' });
       if (lobby.status !== 'waiting') return reply.code(400).send({ error: 'lobby_not_joinable' });
 
       const currentRow = await fastify.db.get(
@@ -402,6 +404,7 @@ module.exports = function registerTournamentRoutes(fastify) {
         [lobbyId]
       );
       if (!lobby) return reply.code(404).send({ error: 'lobby_not_found' });
+      if (String(lobby.status) === 'cancelled') return reply.code(404).send({ error: 'tournament_cancelled' });
       if (Number(lobby.host_id) !== Number(me)) return reply.code(403).send({ error: 'not_host' });
       if (lobby.status !== 'waiting') return reply.code(400).send({ error: 'already_started' });
 
@@ -491,6 +494,7 @@ module.exports = function registerTournamentRoutes(fastify) {
 
       const lobby = await fastify.db.get(`SELECT id, size, status FROM tournament_lobbies WHERE id = ?`, [lobbyId]);
       if (!lobby) return reply.code(404).send({ error: 'lobby_not_found' });
+      if (String(lobby.status) === 'cancelled') return reply.code(404).send({ error: 'tournament_cancelled' });
       if (lobby.status !== 'started') {
         return reply.send({ ok: true, state: await getTournamentState(fastify, lobbyId) });
       }
@@ -552,5 +556,12 @@ module.exports = function registerTournamentRoutes(fastify) {
       req.log && req.log.error && req.log.error({ err }, 'complete_match_failed');
       return reply.code(500).send({ error: 'complete_match_failed' });
     }
+  });
+  
+  // Host-triggered cancel (used when a match host navigates away)
+  fastify.post('/api/tournament/:id/abort', async (req, reply) => {
+    const lobbyId = String(req.params.id);
+    await fastify.broadcastTournamentAbort(lobbyId, 'host_left_match');
+    return { ok: true };
   });
 };

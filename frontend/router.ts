@@ -1,4 +1,4 @@
-// frontend/pages/router.ts (snippet)
+// frontend/pages/router.ts
 import {
   renderLogin,
   renderRegister,
@@ -54,11 +54,53 @@ const routes: Record<string, () => Promise<void> | void> = {
 };
 
 export function route(path: string) {
+  const lid = (window as any).__activeTournamentHostLobbyId;
+  const inProg = !!(window as any).__matchInProgress;
+
+  // If a host left mid-game, notify once, abort on the server, and send everyone home.
+  if (lid && inProg) {
+    const already = !!(window as any).__abortNotified;
+    if (!already) {
+      try { fetch(`/api/tournament/${lid}/abort`, { method: 'POST' }); } catch {}
+      try { alert('A host left mid game, the tournament is canceled. You will be brought home.'); } catch {}
+      (window as any).__abortNotified = true;
+    }
+    // clear state and suppress noisy 404s for a moment
+    (window as any).__activeTournamentHostLobbyId = undefined;
+    (window as any).__matchInProgress = false;
+    (window as any).__suppressLobby404Until = Date.now() + 4000;
+
+    path = '/home';
+    history.pushState({}, '', path);
+    handleLocation();
+    return;
+  }
+
   history.pushState({}, '', path);
   handleLocation();
 }
 
 export async function handleLocation() {
+  // If we were hosting a match page, make sure its socket is closed
+  try { (window as any).__tournRoomCleanup?.(); } catch {}
+
+  // Guard back/forward or direct handleLocation() calls
+  const lid = (window as any).__activeTournamentHostLobbyId;
+  const inProg = !!(window as any).__matchInProgress;
+  if (lid && inProg) {
+    const already = !!(window as any).__abortNotified;
+    if (!already) {
+      try { fetch(`/api/tournament/${lid}/abort`, { method: 'POST' }); } catch {}
+      try { alert('a host left mid game, the tournament is canceled. You will be brought home'); } catch {}
+      (window as any).__abortNotified = true;
+    }
+    (window as any).__activeTournamentHostLobbyId = undefined;
+    (window as any).__matchInProgress = false;
+    history.replaceState({}, '', '/home');
+    await renderHome?.();
+    return;
+  }
+
   const path = window.location.pathname;
   if (path.startsWith('/profile/')) {
     const id = parseInt(path.split('/')[2]);
@@ -69,6 +111,17 @@ export async function handleLocation() {
     renderOauthSuccess();
     return;
   }
+
+
+  // Stop any active polling/intervals before rendering the next page
+  try {
+    (window as any).__stopChatPolling && (window as any).__stopChatPolling();
+    (window as any).__tournLobbyCleanup && (window as any).__tournLobbyCleanup();
+    (window as any).__tournRoomCleanup && (window as any).__tournRoomCleanup();
+  } catch (e) {
+    console.warn('Cleanup on route change failed:', e);
+  }
+
   const page = routes[path] || renderNotFound;
   await page();
 }

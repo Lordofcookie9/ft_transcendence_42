@@ -127,3 +127,23 @@ export function startPresenceHeartbeat() {
 
   // Don’t mark offline on simple tab switches; we no longer do that on visibilitychange
 }
+
+export async function getJSON<T = any>(url: string, opts?: { silent404?: boolean }) {
+  const res = await fetch(url);
+  if (!res.ok) {
+    if (opts?.silent404 && res.status === 404) return null as any;
+    const text = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status} ${text}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+// Optional: guard a one-time toast
+export function toastOnce(key: string, message: string) {
+  const k = `__once_${key}`;
+  // @ts-ignore
+  if ((window as any)[k]) return;
+  // @ts-ignore
+  (window as any)[k] = true;
+  try { alert(message); } catch {}
+}

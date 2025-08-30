@@ -41,6 +41,20 @@ module.exports = function registerGameRoutes(fastify) {
           [roomId]
         );
         if (!room) return reply.code(404).send({ error: 'room_not_found' });
+        // If this room belongs to a tournament, and that tournament is cancelled, block joining.
+        try {
+          const stat = await fastify.db.get(
+            `SELECT tl.status AS lobby_status
+               FROM tournament_matches tm
+               JOIN tournament_lobbies tl ON tl.id = tm.lobby_id
+              WHERE tm.room_id = ?
+              LIMIT 1`, [roomId]
+          );
+          if (stat && String(stat.lobby_status) === 'cancelled') {
+            return reply.code(410).send({ error: 'tournament_cancelled' });
+          }
+        } catch (e) { req.log && req.log.error && req.log.error({ e, roomId }, 'tournament_status_check_failed'); }
+
 
         // Attach user to room if needed (for private rooms or if a tournament room wasn't fully wired yet)
         if (!room.host_id) {
@@ -53,6 +67,23 @@ module.exports = function registerGameRoutes(fastify) {
         }
 
         // My role (engine expects left/right)
+        // When both players are set, mark the tournament match as 'active' so disconnects cancel properly
+        try {
+          if (room.host_id && room.guest_id) {
+            const trow = await fastify.db.get(
+              `SELECT id, status FROM tournament_matches WHERE room_id = ?`,
+              [roomId]
+            );
+            if (trow && trow.status === 'pending') {
+              await fastify.db.run(
+                `UPDATE tournament_matches SET status = 'active' WHERE id = ?`,
+                [trow.id]
+              );
+            }
+          }
+        } catch (e) {
+          fastify.log.error({ err: e, roomId }, 'failed to mark tournament match active');
+        }
         let role = 'spectator';
         if (Number(room.host_id) === Number(me)) role = 'left';
         else if (Number(room.guest_id) === Number(me)) role = 'right';
@@ -155,6 +186,20 @@ module.exports = function registerGameRoutes(fastify) {
           [room_id]
         );
         if (!room) return reply.code(404).send({ error: 'room_not_found' });
+        // If this room belongs to a tournament, and that tournament is cancelled, block joining.
+        try {
+          const stat = await fastify.db.get(
+            `SELECT tl.status AS lobby_status
+               FROM tournament_matches tm
+               JOIN tournament_lobbies tl ON tl.id = tm.lobby_id
+              WHERE tm.room_id = ?
+              LIMIT 1`, [roomId]
+          );
+          if (stat && String(stat.lobby_status) === 'cancelled') {
+            return reply.code(410).send({ error: 'tournament_cancelled' });
+          }
+        } catch (e) { req.log && req.log.error && req.log.error({ e, roomId }, 'tournament_status_check_failed'); }
+
         if (room.mode !== 'private_1v1') return reply.send({ ok: true, ignored: 'not_private_1v1' });
         if (room.host_id !== me && room.guest_id !== me) {
           return reply.code(403).send({ error: 'not_in_room' });
