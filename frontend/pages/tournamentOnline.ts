@@ -261,8 +261,7 @@ export async function renderOnlineTournamentLobby() {
 
     list.innerHTML = snap.participants.map(p => `
       <div class="border border-gray-700 rounded p-3">
-        <div class="text-sm text-gray-400">${escapeHtml(p.display_name)}</div>
-        <div class="text-xl font-semibold">${escapeHtml(p.alias)}</div>
+        <div class="text-xl font-semibold">${escapeHtml(p.alias || p.display_name)}</div>
       </div>
     `).join('') + (snap.spots_left > 0 ? `
       <div class="border border-dashed border-gray-700 rounded p-3 text-gray-500 italic">
