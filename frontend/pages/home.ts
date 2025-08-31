@@ -235,6 +235,9 @@ export async function renderLocal1v1() {
       <div class="flex justify-between items-center max-w-6xl mx-auto mb-4 px-8 text-xl font-semibold text-white">
         <div id="player1-info" class="text-left w-1/3">${escapeHtml(leftName)}: ${escapeHtml(s1)}</div>
         <button id="replay-btn" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded">Replay</button>
+         <p class="mt-2 text-sm text-gray-400">
+          Controls: left player use <strong>W,S</strong> — right player use <strong>Up</strong> and <strong>Down</strong> arrows
+         </p>
         <div id="player2-info" class="text-right w-1/3">${escapeHtml(rightName)}: ${escapeHtml(s2)}</div>
       </div>
 
