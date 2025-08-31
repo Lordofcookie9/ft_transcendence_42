@@ -84,7 +84,7 @@ export async function renderOnlineTournamentRoom() {
     <div class="text-center mt-10">
       <h1 class="text-3xl font-bold mb-2">Tournament Match</h1>
       <div class="text-gray-400 text-sm mb-1">
-         Match #${escapeHtml(String(matchId))}
+         Controls : left player use W,S right player use up and down arrow
       </div>
 
       <div id="host-controls" class="mt-3 hidden">
@@ -196,7 +196,10 @@ export async function renderOnlineTournamentRoom() {
 
   let guestJoined = guestAlias && guestAlias !== WAITING;
 
-  const setHostAliasMaybe = (name?: string | null) => {
+  
+  // New: only allow starting once we receive a server presence event
+  let guestConnected: boolean = false;
+const setHostAliasMaybe = (name?: string | null) => {
     const n = (name || '').trim();
     if (!n || n === WAITING) return;
     hostAlias = n;
@@ -208,10 +211,7 @@ export async function renderOnlineTournamentRoom() {
     const n = (name || '').trim();
     if (!n || n === WAITING) return;
     guestAlias = n;
-    guestJoined = true;
     try { localStorage.setItem('p2', guestAlias); } catch {}
-    if (btnStart) btnStart.disabled = false;
-    if (startHint) startHint.textContent = 'Opponent is here. You can start!';
     updateNameplates();
     try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { right: guestAlias } })); } catch {}
   };
@@ -267,8 +267,8 @@ export async function renderOnlineTournamentRoom() {
   // Host controls visibility
   if (role === 'left' && hostControls && btnStart) {
     hostControls.classList.remove('hidden');
-    btnStart.disabled = !guestJoined;
-    if (guestJoined && startHint) startHint.textContent = 'Opponent is here. You can start!';
+    btnStart.disabled = !guestConnected;
+    if (guestConnected && startHint) startHint.textContent = 'Opponent is here. You can start!';
   }
 
   // Helpers that always prefer bracket alias, not usernames
@@ -294,6 +294,9 @@ export async function renderOnlineTournamentRoom() {
 
     if (msg.type === 'opponent:joined') {
       if (role === 'left' && msg.role === 'guest') {
+        guestConnected = true;
+        if (btnStart) btnStart.disabled = false;
+        if (startHint) startHint.textContent = 'Opponent is here. You can start!';
         setGuestAliasMaybe(preferBracketForGuest(msg.alias));
       } else if (role === 'right' && msg.role === 'host') {
         setHostAliasMaybe(preferBracketForHost(msg.alias));
@@ -363,6 +366,7 @@ export async function renderOnlineTournamentRoom() {
 
   // Host-only: start once guest joined AND button clicked
   const startHostGame = () => {
+    if (!guestConnected) { if (startHint) startHint.textContent = 'Waiting for opponent to join…'; return; }
     if (engineStarted) return;
     engineStarted = true;
     if (hostControls) hostControls.remove();
@@ -430,7 +434,7 @@ export async function renderOnlineTournamentRoom() {
 
   if (role === 'left' && btnStart) {
     btnStart.addEventListener('click', () => {
-      if (!guestJoined) return;
+      if (!guestConnected) return;
       startHostGame();
     });
   }

@@ -189,7 +189,7 @@ export async function renderOnlineTournamentLobby() {
       <h1 class="text-3xl font-bold">Online Tournament Lobby</h1>
       <div id="winner-banner"></div>
       <div id="lobby-info" class="text-white"></div>
-      <div class="flex items-center gap-3 items-end">
+      <div class="flex items-center gap-3 items-end" id="start-area">
         <div class="flex-1 text-sm text-gray-400" id="host-note"></div>
         <button id="start-btn" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded disabled:opacity-50" disabled>Start tournament</button>
       </div>
@@ -275,6 +275,8 @@ export async function renderOnlineTournamentLobby() {
     const list = document.getElementById('participants');
     const startBtn = document.getElementById('start-btn') as HTMLButtonElement | null;
     const note = document.getElementById('host-note') as HTMLDivElement | null;
+    
+    const startArea = document.getElementById('start-area') as HTMLDivElement | null;
     if (!info || !list || !snap || !snap.ok) return;
 
     // If the tournament is finished, disable/close abort socket so no redirects can happen
@@ -296,18 +298,35 @@ export async function renderOnlineTournamentLobby() {
     const isFull = snap.count === snap.lobby.size;
     const canStart = snap.lobby.status === 'waiting' && isFull && iAmHost;
 
-    if (note) {
-      if (!iAmHost) note.textContent = 'Only the host can start the tournament.';
-      else if (!isFull) note.textContent = `Waiting for ${snap.spots_left} more…`;
-      else note.textContent = 'Ready to start.';
+    
+    
+    if (startArea) startArea.classList.toggle('hidden', snap.lobby.status !== 'waiting');
+// Hide the start area once the tournament is no longer waiting
+    if (snap.lobby.status === 'waiting') {
+      if (startArea) startArea.classList.remove('hidden');
+      if (note) {
+      if (snap.lobby.status !== 'waiting') {
+        note.textContent = '';
+      } else if (iAmHost) {
+        if (!isFull) {
+          note.textContent = `Waiting for ${snap.spots_left} more…`;
+        } else {
+          note.textContent = 'Ready to start.';
+        }
+      } else {
+        note.textContent = '';
+      }
     }
-
-    if (startBtn) {
-      startBtn.style.display = iAmHost ? '' : 'none';
-      startBtn.disabled = !canStart;
+      if (startBtn) {
+        startBtn.style.display = iAmHost ? '' : 'none';
+        startBtn.disabled = !canStart;
+      }
+    } else {
+      if (startArea) startArea.classList.add('hidden');
+      if (note) note.textContent = '';
+      if (startBtn) startBtn.style.display = 'none';
     }
-
-    list.innerHTML = snap.participants.map(p => `
+list.innerHTML = snap.participants.map(p => `
       <div class="border border-gray-700 rounded p-3">
         <div class="text-xl font-semibold">${escapeHtml(p.alias || p.display_name)}</div>
       </div>
