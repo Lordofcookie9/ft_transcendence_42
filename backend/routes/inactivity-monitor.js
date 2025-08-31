@@ -1,6 +1,6 @@
 
 module.exports = function registerInactivityMonitor(fastify) {
-  const INACTIVE_MINUTES = Number(process.env.TOURNAMENT_INACTIVE_MINUTES || 1);
+  const INACTIVE_MINUTES = Number(process.env.TOURNAMENT_INACTIVE_MINUTES || 10);
   const SWEEP_INTERVAL_MS = Number(process.env.INACTIVITY_SWEEP_INTERVAL_MS || 30000);
 
   async function sweepOnce() {

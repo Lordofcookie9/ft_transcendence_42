@@ -119,7 +119,7 @@ module.exports = function registerSockets(fastify) {
     }
 
     const msgText = (reason === 'inactive_timeout')
-      ? 'the tounament has been inactive for 6 minutes. you will be brought back home'
+      ? 'the tounament has been inactive for 10 minutes. you will be brought back home'
       : 'a host left mid game, the tournament is canceled. You will be brought home';
     const payload = {
       type: 'tournament:aborted',
