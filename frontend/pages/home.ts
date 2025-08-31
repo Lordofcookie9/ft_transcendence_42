@@ -99,11 +99,25 @@ export function renderHome() {
         <div class="text-center">
           <h2 class="text-xl font-semibold mb-2">Tournament (up to 8 players)</h2>
           <button onclick="startTournamentSetup()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Local Tournament</button>
-          <button onclick="startOnlineTournamentSetup()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Online Tournament</button>
+          <button id="btnOnlineTournament" onclick="startOnlineTournamentSetup()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Online Tournament</button>
         </div>
       </div>
     </div>
-  `);
+  `)
+  // Disable Online Tournament button for guests
+  try {
+    const btnOnline = document.getElementById('btnOnlineTournament') as HTMLButtonElement | null;
+    if (btnOnline) {
+      const ui = getUserInfo();
+      const isLogged = ui && (ui as any).type === 'loggedInUser';
+      if (!isLogged) {
+        btnOnline.setAttribute('disabled', 'true');
+        btnOnline.title = 'Log in to play online tournaments';
+        btnOnline.classList.add('opacity-50', 'cursor-not-allowed');
+      }
+    }
+  } catch {}
+;
 
   // Enable chat controls if the user is authenticated (JWT cookie)
   (async () => {
@@ -120,6 +134,14 @@ export function renderHome() {
           btn.removeAttribute('disabled');
           btn.removeAttribute('title');
         }
+        // Also enable Online Tournament button now that the user is authenticated
+        const btnOnline2 = document.getElementById('btnOnlineTournament') as HTMLButtonElement | null;
+        if (btnOnline2) {
+          btnOnline2.removeAttribute('disabled');
+          btnOnline2.removeAttribute('title');
+          btnOnline2.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+
       }
     } catch (_) {
       // remain disabled if not authenticated
@@ -684,6 +706,18 @@ export async function renderPrivate1v1() {
 declare global { interface Window { startOnlineTournamentSetup?: () => void; } }
 
 window.startOnlineTournamentSetup = async function startOnlineTournamentSetup() {
+  // Require authentication
+  try {
+    const resp = await fetch('/api/profile', { credentials: 'include' });
+    if (!resp.ok) {
+      alert('Please log in to create an online tournament.');
+      return;
+    }
+  } catch {
+    alert('Please log in to create an online tournament.');
+    return;
+  }
+
   // Ask for size (3–8)
   let numStr = prompt('How many players (3–8)?');
   if (numStr === null) return;
