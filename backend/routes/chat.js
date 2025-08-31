@@ -47,11 +47,12 @@ module.exports = function registerChatRoutes(fastify) {
           -- Private messages (prefixed so the UI can style them)
           SELECT
             su.display_name AS alias,
-            ('<(private): ' || pm.message || '>') AS message,
+            ('<from "' || su.display_name || '" to "' || ru.display_name || '"> ' || pm.message) AS message,
             strftime('%Y-%m-%dT%H:%M:%SZ', pm.timestamp) AS timestamp,
             su.id AS user_id
           FROM private_messages pm
           JOIN users su ON su.id = pm.sender_id
+          JOIN users ru ON ru.id = pm.recipient_id
           WHERE (pm.sender_id = ? OR pm.recipient_id = ?)
             AND pm.timestamp >= ${twoHoursAgoExpr}
         ) AS feed
