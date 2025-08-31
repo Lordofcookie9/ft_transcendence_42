@@ -79,7 +79,15 @@ module.exports = function registerGameRoutes(fastify) {
                 `UPDATE tournament_matches SET status = 'active' WHERE id = ?`,
                 [trow.id]
               );
-            }
+            
+// Bump lobby activity when a match actually starts
+try {
+  const lidRow = await fastify.db.get(`SELECT lobby_id FROM tournament_matches WHERE id = ?`, [trow.id]);
+  if (lidRow && lidRow.lobby_id) {
+    await fastify.db.run(`UPDATE tournament_lobbies SET last_activity_at=CURRENT_TIMESTAMP WHERE id = ?`, [lidRow.lobby_id]);
+  }
+} catch (e) { req.log && req.log.error && req.log.error({ e }, 'bump_last_activity_failed'); }
+}
           }
         } catch (e) {
           fastify.log.error({ err: e, roomId }, 'failed to mark tournament match active');

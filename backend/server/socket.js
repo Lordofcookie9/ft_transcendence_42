@@ -118,11 +118,14 @@ module.exports = function registerSockets(fastify) {
       fastify.log.error({ e, lobbyId }, 'failed_to_mark_tournament_cancelled');
     }
 
+    const msgText = (reason === 'inactive_timeout')
+      ? 'the tounament has been inactive for 6 minutes. you will be brought back home'
+      : 'a host left mid game, the tournament is canceled. You will be brought home';
     const payload = {
       type: 'tournament:aborted',
       reason,
       lobbyId: String(lobbyId),
-      message: 'a host left mid game, the tournament is canceled. You will be brought home'
+      message: msgText
     };
 
     const sentSockets = new Set();

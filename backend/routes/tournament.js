@@ -53,7 +53,13 @@ module.exports = function registerTournamentRoutes(fastify) {
           FOREIGN KEY (room_id) REFERENCES game_rooms(id) ON DELETE SET NULL
         )
       `);
-    } catch (e) {
+    
+      // Track last activity per lobby (match starts/completes etc.)
+      try {
+        await fastify.db.run(`ALTER TABLE tournament_lobbies ADD COLUMN last_activity_at DATETIME`);
+        await fastify.db.run(`UPDATE tournament_lobbies SET last_activity_at = COALESCE(started_at, created_at, CURRENT_TIMESTAMP) WHERE last_activity_at IS NULL`);
+      } catch (_) { /* ignore if column exists */ }
+} catch (e) {
       fastify.log.error({ e }, 'Failed to ensure tournament tables');
     }
   })();
@@ -285,10 +291,12 @@ module.exports = function registerTournamentRoutes(fastify) {
         [me, size]
       );
       const lobbyId = insLobby.lastID;
+      await fastify.db.run(`UPDATE tournament_lobbies SET last_activity_at=CURRENT_TIMESTAMP WHERE id = ?`, [lobbyId]);
       await fastify.db.run(
         `INSERT INTO tournament_participants (lobby_id, user_id, alias) VALUES (?, ?, ?)`,
         [lobbyId, me, myAlias]
       );
+      await fastify.db.run(`UPDATE tournament_lobbies SET last_activity_at=CURRENT_TIMESTAMP WHERE id = ?`, [lobbyId]);
       await fastify.db.run('COMMIT');
       return reply.send({ ok: true, lobby_id: lobbyId });
     } catch (err) {
@@ -420,7 +428,7 @@ module.exports = function registerTournamentRoutes(fastify) {
 
       await fastify.db.run('BEGIN');
       await fastify.db.run(
-        `UPDATE tournament_lobbies SET status='started', started_at=CURRENT_TIMESTAMP WHERE id = ?`,
+        `UPDATE tournament_lobbies SET status='started', started_at=CURRENT_TIMESTAMP, last_activity_at=CURRENT_TIMESTAMP WHERE id = ?`,
         [lobbyId]
       );
       await seedRoundZero(fastify, lobbyId);

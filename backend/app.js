@@ -14,6 +14,7 @@ const registerMetricsRoutes = require('./routes/metrics');
 const registerPresenceRoutes = require('./routes/presence');
 const registerTournamentRoutes = require('./routes/tournament');
 const registerHostMonitor = require('./routes/host-monitor');
+const registerInactivityMonitor = require('./routes/inactivity-monitor');
 const { registerMetrics, httpRequests } = require('./monitor/monitor'); 
 
 async function start() {
@@ -39,6 +40,7 @@ async function start() {
   registerPresenceRoutes(fastify);
   registerTournamentRoutes(fastify);
   registerHostMonitor(fastify);
+  registerInactivityMonitor(fastify);
 
  // Monitor
   registerMetrics(fastify); 
