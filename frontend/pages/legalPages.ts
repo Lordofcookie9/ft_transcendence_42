@@ -1,8 +1,9 @@
 export function renderLegal() {
     const el = document.getElementById('app');
     if (!el) return;
-    el.innerHTML = `
-    <div class="prose prose-invert max-w-3xl mx-auto p-6 text-sm">
+  el.innerHTML = `
+  <div class="prose prose-invert max-w-3xl mx-auto p-6 text-sm">
+   <div class="mb-4"><a href="/home" onclick="route('/home');return false;" class="text-indigo-400 hover:text-white text-xs">← Home</a></div>
      <h1 class="text-xl font-bold">Legal Mentions</h1>
      <p>Publisher: rrichard</p>
      <p>Host: rrichard</p>
@@ -13,8 +14,9 @@ export function renderLegal() {
 export function renderPrivacy() {
     const el = document.getElementById('app');
     if (!el) return;
-    el.innerHTML = `
-    <div class="prose prose-invert max-w-3xl mx-auto p-6 text-sm">
+  el.innerHTML = `
+  <div class="prose prose-invert max-w-3xl mx-auto p-6 text-sm">
+   <div class="mb-4"><a href="/home" onclick="route('/home');return false;" class="text-indigo-400 hover:text-white text-xs">← Home</a></div>
      <h1 class="text-xl font-bold">Privacy Policy</h1>
      <p>This service processes a minimal set of personal data strictly needed to provide gameplay and communication features.</p>
      <h2 class="text-lg font-semibold">Data Collected</h2>
@@ -49,19 +51,94 @@ export function renderPrivacy() {
 export function renderTerms() {
     const el = document.getElementById('app');
     if (!el) return;
-    el.innerHTML = `
-    <div class="prose prose-invert max-w-3xl mx-auto p-6 text-sm">
+  el.innerHTML = `
+  <div class="prose prose-invert max-w-3xl mx-auto p-6 text-sm">
+   <div class="mb-4"><a href="/home" onclick="route('/home');return false;" class="text-indigo-400 hover:text-white text-xs">← Home</a></div>
      <h1 class="text-xl font-bold">Terms of Use</h1>
-     <p>Rules, acceptable use, liability, termination.</p>
+     <p>These Terms govern your use of the site (the "Service"). By accessing or using the Service you agree to them. If you do not agree, do not use the Service.</p>
+
+     <h2 class="text-lg font-semibold">1. Account & Eligibility</h2>
+     <ul>
+       <li>You must provide accurate information (a valid email, a display name).</li>
+       <li>You are responsible for keeping credentials confidential and for activity under your account.</li>
+       <li>You may request deletion of your account at any time.</li>
+     </ul>
+
+     <h2 class="text-lg font-semibold">2. Acceptable Use</h2>
+     <ul>
+       <li>No harassment, hate speech, threats, or unlawful content.</li>
+       <li>No cheating, exploiting bugs, automation/bots, or attempts to disrupt gameplay or infrastructure.</li>
+       <li>No impersonation of other users or staff.</li>
+       <li>Do not upload malicious code or attempt unauthorized access.</li>
+     </ul>
+
+     <h2 class="text-lg font-semibold">3. User Content & Chat</h2>
+     <p>You are solely responsible for content you send (messages, display name, avatar). Temporary storage may occur to deliver messages. We may remove content that violates these Terms.</p>
+
+     <h2 class="text-lg font-semibold">4. Intellectual Property</h2>
+     <p>Code, game logic, and UI assets are owned by the operator or licensors. Limited personal, non‑commercial use is granted to access and play. Do not copy, reverse engineer, or redistribute significant parts of the Service without permission (except where permitted by applicable law).</p>
+
+     <h2 class="text-lg font-semibold">5. Availability & Changes</h2>
+     <p>The Service is provided on an experimental / best-effort basis and may change, suspend, or end at any time without notice. Features can be added or removed.</p>
+
+     <h2 class="text-lg font-semibold">6. Privacy</h2>
+     <p>Personal data handling is described in the Privacy Policy (see that page). These Terms incorporate that policy by reference.</p>
+
+     <h2 class="text-lg font-semibold">7. Termination</h2>
+     <p>We may restrict or terminate access (temporary or permanent) if you violate these Terms, abuse the Service, or create security / stability risks. You may stop using the Service at any time.</p>
+
+     <h2 class="text-lg font-semibold">8. Disclaimers</h2>
+     <p>The Service is provided "AS IS" without warranties of any kind (express or implied), including fitness for a particular purpose, availability, or non-infringement. Use is at your own risk.</p>
+
+     <h2 class="text-lg font-semibold">9. Liability</h2>
+     <p>To the maximum extent permitted by law, cumulative liability related to the Service is limited to direct damages not exceeding the amount (if any) you paid (currently zero). We are not liable for indirect, incidental, or consequential damages.</p>
+
+     <h2 class="text-lg font-semibold">10. Updates to Terms</h2>
+     <p>We may update these Terms for legal, technical, or operational reasons. Material changes will be posted here with a new date. Continued use after changes constitutes acceptance.</p>
+
+     <h2 class="text-lg font-semibold">11. Governing Law</h2>
+     <p>Unless mandatory local law applies, these Terms are governed by French law. Any disputes should first be addressed informally via the contact below.</p>
+
+     <h2 class="text-lg font-semibold">12. Contact</h2>
+     <p>Questions or requests: <a href="mailto:rrichard@student.42.fr">rrichard@student.42.fr</a></p>
+
+     <p class="mt-6 text-xs text-gray-400">Last update: ${new Date().toISOString().split('T')[0]}</p>
+     <p class="text-xs text-gray-500"><em>This simplified set of Terms is suitable for a small non‑commercial project. Expand with additional clauses (e.g., payment, uptime SLAs) if scope grows.</em></p>
     </div>`;
 }
 
 export function renderCookies() {
     const el = document.getElementById('app');
     if (!el) return;
-    el.innerHTML = `
-    <div class="prose prose-invert max-w-3xl mx-auto p-6 text-sm">
+  el.innerHTML = `
+  <div class="prose prose-invert max-w-3xl mx-auto p-6 text-sm">
+   <div class="mb-4"><a href="/home" onclick="route('/home');return false;" class="text-indigo-400 hover:text-white text-xs">← Home</a></div>
      <h1 class="text-xl font-bold">Cookie Notice</h1>
-     <p>List essential vs optional cookies, consent info.</p>
+     <p>We only use strictly necessary (essential) cookies required for authentication and security. No analytics, advertising, or tracking cookies are used.</p>
+     <h2 class="text-lg font-semibold">Essential Cookies</h2>
+     <table class="text-sm w-full border border-gray-700/60">
+       <thead>
+         <tr><th class="text-left p-2 border-b border-gray-700/60">Name</th><th class="text-left p-2 border-b border-gray-700/60">Purpose</th><th class="text-left p-2 border-b border-gray-700/60">Type</th><th class="text-left p-2 border-b border-gray-700/60">Retention</th></tr>
+       </thead>
+       <tbody>
+         <tr>
+           <td class="p-2 align-top"><code>token</code></td>
+           <td class="p-2 align-top">Session JSON Web Token (JWT) used to keep you logged in and authorize protected API calls.</td>
+           <td class="p-2 align-top">HTTP-only, Secure, SameSite=Lax</td>
+           <td class="p-2 align-top">Up to 7 days (maxAge) or until logout / deletion / expiry.</td>
+         </tr>
+         <tr>
+           <td class="p-2 align-top"><code>_csrf</code><br/><span class="text-xs text-gray-400">(name may vary)</span></td>
+           <td class="p-2 align-top">Anti-CSRF token helper used by the framework’s protection plugin to mitigate cross-site request forgery.</td>
+           <td class="p-2 align-top">Secure cookie (non-personal)</td>
+           <td class="p-2 align-top">Session (expires when browser session ends).</td>
+         </tr>
+       </tbody>
+     </table>
+     <h2 class="text-lg font-semibold mt-6">No Optional Cookies</h2>
+     <p>There are currently no preference, analytics, or marketing cookies. If this changes, this notice will be updated and consent will be requested where required.</p>
+     <h2 class="text-lg font-semibold mt-6">Local Storage</h2>
+     <p>We also use <em>localStorage</em> for transient UI/game data (e.g., display name cache, scores, presence flags). This data stays in your browser and can be cleared at any time via your browser settings or the logout/delete account features.</p>
+     <p class="mt-4 text-xs text-gray-400">Last update: ${new Date().toISOString().split('T')[0]}</p>
     </div>`;
 }
