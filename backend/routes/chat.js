@@ -1,5 +1,26 @@
 // Chat routes extracted from server.js
 module.exports = function registerChatRoutes(fastify) {
+  // --- Add sanitization helpers ---
+  const ALLOWED_TOKEN_REGEX = /<\(\s*(invite|tournament)\s*\)\s*:\s*\d+\s*>/gi;
+  const ESC_MAP = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;', '`':'&#96;' };
+
+  function sanitizeMessage(input = '') {
+    let s = String(input).slice(0, 1000);
+    // Extract allowed special tokens first
+    const tokens = [];
+    s = s.replace(ALLOWED_TOKEN_REGEX, (m) => {
+      tokens.push(m);
+      return `__TOK${tokens.length - 1}__`;
+    });
+    // Escape everything else
+    s = s.replace(/[&<>"'`]/g, c => ESC_MAP[c]);
+    // Restore tokens (left unescaped so client can detect them)
+    tokens.forEach((tok, i) => {
+      s = s.replace(`__TOK${i}__`, tok);
+    });
+    return s;
+  }
+
   fastify.get('/api/chat', async (request, reply) => {
     try {
       let currentUserId = null;
@@ -85,13 +106,8 @@ module.exports = function registerChatRoutes(fastify) {
   fastify.post('/api/chat', { preValidation: [fastify.authenticate] }, async (request, reply) => {
     try {
       const { message } = request.body || {};
-      if (!message || !message.trim()) {
-        return reply.code(400).send({ error: 'Missing alias or message' });
-      }
-
-      const normalized = message.trim();
-      if (normalized.length > 1000) {
-        return reply.code(403).send({ error: 'Message must be under 1000 characters long' });
+      if (!message || !String(message).trim()) {
+        return reply.code(400).send({ error: 'Missing message' });
       }
 
       const row = await fastify.db.get(
@@ -101,9 +117,11 @@ module.exports = function registerChatRoutes(fastify) {
       const alias = row?.display_name;
       if (!alias) return reply.code(400).send({ error: 'Invalid user' });
 
+      const clean = sanitizeMessage(message);
+
       await fastify.db.run(
         'INSERT INTO messages (alias, message) VALUES (?, ?)',
-        [alias, normalized]
+        [alias, clean]
       );
 
       return { success: true };
@@ -120,7 +138,6 @@ module.exports = function registerChatRoutes(fastify) {
         return reply.code(400).send({ error: 'recipient_id and message are required' });
       }
       const senderId = request.user.id;
-
       if (Number(recipient_id) === Number(senderId)) {
         return reply.code(400).send({ error: 'Cannot send a private message to yourself' });
       }
@@ -128,14 +145,16 @@ module.exports = function registerChatRoutes(fastify) {
       const rec = await fastify.db.get('SELECT id FROM users WHERE id = ?', [recipient_id]);
       if (!rec) return reply.code(404).send({ error: 'Recipient not found' });
 
+      const clean = sanitizeMessage(message);
+
       await fastify.db.run(
         'INSERT INTO private_messages (sender_id, recipient_id, message) VALUES (?, ?, ?)',
-        [senderId, recipient_id, String(message).trim()]
+        [senderId, recipient_id, clean]
       );
 
       return { success: true };
     } catch (err) {
-      request.log.error({ err }, 'Failed to save private chat message');
+      request.log.error({ err }, 'Failed to send private chat message');
       reply.code(500).send({ error: 'Failed to send private message' });
     }
   });

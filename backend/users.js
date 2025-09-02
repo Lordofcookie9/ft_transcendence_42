@@ -956,33 +956,64 @@ fastify.get('/api/user/:id', async (req, reply) => {
   // Ensure anonymized column exists (ignore error if already there)
   try { await db.run(`ALTER TABLE users ADD COLUMN anonymized INTEGER DEFAULT 0`); } catch {}
 
-  // Anonymize account (GDPR pseudonymization request) – retains stats but strips PII.
-  fastify.post('/api/account/anonymize', { preValidation: [fastify.authenticate] }, async (req, reply) => {
-    const uid = req.user.id;
+	fastify.post('/api/account/anonymize', {
+    preValidation: [fastify.authenticate]
+  }, async (req, reply) => {
+    if (!req.user || !req.user.id)
+      return reply.code(401).send({ error: 'Not authenticated' });
+
+    const userId = req.user.id;
+    const user = await db.get('SELECT * FROM users WHERE id = ?', [userId]);
+    if (!user) return reply.code(404).send({ error: 'Not found' });
+    if (user.anonymized) return reply.code(400).send({ error: 'Already anonymized' });
+
+    await db.run('BEGIN');
     try {
-      await db.run('BEGIN');
-      const user = await db.get(`SELECT id, email, display_name, anonymized FROM users WHERE id = ?`, [uid]);
-      if (!user) { await db.run('ROLLBACK'); return reply.code(404).send({ error: 'User not found' }); }
-      if (user.anonymized) { await db.run('ROLLBACK'); return reply.send({ message: 'Already anonymized' }); }
+      const randomPwd = crypto.randomBytes(48).toString('hex');
+      const randomHash = await bcrypt.hash(randomPwd, 10);
 
-      const emailHash = require('crypto').createHash('sha256').update(user.email).digest('hex');
-      const placeholderEmail = emailHash + '@anon.local';
-      const newDisplay = 'anon_' + user.id;
-      const randomPwd = await bcrypt.hash(require('crypto').randomBytes(32).toString('hex'), 10);
+      // Use random (non‑derivable) email so it cannot be reversed
+      const placeholderEmail = crypto.randomBytes(16).toString('hex') + '@anon.local';
+      const newDisplay = `anon_${user.id}`;
 
-      // Update messages aliases first
-      await db.run(`UPDATE messages SET alias = ? WHERE alias = ?`, [newDisplay, user.display_name]);
-      // Scrub user record
-      await db.run(`UPDATE users SET email = ?, display_name = ?, avatar_url = '/default-avatar.png', password_hash = ?, twofa_enabled = 0, twofa_method = NULL, twofa_verified = 0, anonymized = 1 WHERE id = ?`, [placeholderEmail, newDisplay, randomPwd, uid]);
-      await db.run(`DELETE FROM twofa_codes WHERE contact = ?`, [user.email]);
-      await db.run(`DELETE FROM app_codes WHERE contact = ?`, [user.email]);
+      // Update public messages alias (ignore if table absent)
+      try {
+        await db.run('UPDATE messages SET alias = ? WHERE alias = ?', [newDisplay, user.display_name]);
+      } catch (e) {
+        fastify.log.warn('Skipping messages alias update:', e.message);
+      }
+
+      await db.run(`
+        UPDATE users
+        SET email = ?, display_name = ?, avatar_url = '/default-avatar.png',
+            password_hash = ?, twofa_enabled = 0, twofa_method = NULL,
+            twofa_verified = 0, anonymized = 1,
+            oauth_provider = NULL, oauth_id = NULL,
+            account_status = 'offline', last_online = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+        [placeholderEmail, newDisplay, randomHash, userId]
+      );
+
+      // twofa_codes / app_codes tables use contact (email), NOT user_id
+      try {
+        await db.run('DELETE FROM twofa_codes WHERE contact = ?', [user.email.toLowerCase()]);
+      } catch (e) {
+        fastify.log.warn('Delete twofa_codes failed:', e.message);
+      }
+      try {
+        await db.run('DELETE FROM app_codes WHERE contact = ?', [user.email.toLowerCase()]);
+      } catch (e) {
+        fastify.log.warn('Delete app_codes failed:', e.message);
+      }
+
       await db.run('COMMIT');
-      reply.clearCookie('token', { path: '/', httpOnly: true, secure: true, sameSite: 'lax' });
-      return { message: 'Account anonymized', display_name: newDisplay };
-    } catch (err) {
-      try { await db.run('ROLLBACK'); } catch {}
-      fastify.log.error(err);
-      return reply.code(500).send({ error: 'Anonymization failed' });
+      reply.clearCookie('token', { path: '/' });
+      return reply.send({ status: 'ok' });
+    } catch (e) {
+      await db.run('ROLLBACK').catch(()=>{});
+      fastify.log.error('Anonymize error:', e);
+      // Expose minimal message for debugging (adjust/remove in prod)
+      return reply.code(500).send({ error: 'Anonymize failed', detail: e.message });
     }
   });
   // Simple privacy info endpoint (minimal)

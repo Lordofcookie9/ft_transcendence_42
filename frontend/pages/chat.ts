@@ -3,10 +3,21 @@ import { setContent, escapeHtml, formatDbTime } from '../utility.js';
 import { initPongGame } from "../pong/pong.js";
 import { route } from '../router.js';
 
-function decodeAngles(s: string) {
-  return String(s || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+function escapeHtmlStrict(s: string) {
+  return String(s).replace(/[&<>"'`]/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[c]!
+  ));
 }
 
+function extractInviteId(text: string): number | null {
+  const m = /<\(\s*invite\s*\)\s*:\s*(\d+)\s*>/i.exec(text);
+  return m ? Number(m[1]) : null;
+}
+
+function extractTournamentId(text: string): number | null {
+  const m = /<\(\s*tournament\s*\)\s*:\s*(\d+)\s*>/i.exec(text);
+  return m ? Number(m[1]) : null;
+}
 async function getMessages() {
   try {
     const res = await fetch('/api/chat');
@@ -59,13 +70,9 @@ export async function updateChatBox() {
     return;
   }
 
-  // Preload private 1v1 invite room statuses
+  // Preload private 1v1 invite room statuses (use raw message, no decodeAngles)
   const inviteRoomIds = Array.from(new Set(
-    messages.map((m) => {
-      const text = decodeAngles(m.message);
-      const match = /<\(\s*invite\s*\)\s*:\s*(\d+)\s*>/i.exec(text);
-      return match ? Number(match[1]) : null;
-    }).filter((x): x is number => Number.isFinite(x as number))
+    messages.map(m => extractInviteId(m.message || '')).filter((x): x is number => Number.isFinite(x))
   ));
   type RoomStatus = { has_guest: boolean; joinable?: boolean };
   const statusMap: Record<number, RoomStatus> = {};
@@ -80,27 +87,21 @@ export async function updateChatBox() {
 
   // Preload tournament lobby statuses
   const tournamentIds = Array.from(new Set(
-    messages.map((m) => {
-      const text = decodeAngles(m.message);
-      const t = /<\(\s*tournament\s*\)\s*:\s*(\d+)\s*>/i.exec(text);
-      return t ? Number(t[1]) : null;
-    }).filter((x): x is number => Number.isFinite(x as number))
+    messages.map(m => extractTournamentId(m.message || '')).filter((x): x is number => Number.isFinite(x))
   ));
   type LobbyStatus = { joinable: boolean; count: number; size: number };
   const lobbyStatusMap: Record<number, LobbyStatus> = {};
-  // Avoid hammering the API for destroyed tournaments (404). Cache in sessionStorage for 5 minutes.
   const DEAD_KEY = 'dead.tournaments';
   let dead: Record<number, number> = {};
   try { dead = JSON.parse(sessionStorage.getItem(DEAD_KEY) || '{}'); } catch { dead = {}; }
 
   await Promise.all(tournamentIds.map(async (tid) => {
     try {
-      // skip if recently known dead
-      const deadAt = (dead as any)[tid];
-      if (deadAt && (Date.now() - Number(deadAt)) < 5 * 60 * 1000) return;
+      const deadAt = dead[tid];
+      if (deadAt && (Date.now() - deadAt) < 5 * 60 * 1000) return;
       const resp = await fetch(`/api/tournament/${tid}`, { credentials: 'include' });
       if (resp.status === 404) {
-        (dead as any)[tid] = Date.now();
+        dead[tid] = Date.now();
         try { sessionStorage.setItem(DEAD_KEY, JSON.stringify(dead)); } catch {}
         return;
       }
@@ -120,12 +121,12 @@ export async function updateChatBox() {
     const ts = parseTimestamp(msg.timestamp);
     const timestamp = ts ? formatDbTime(msg.timestamp) : '';
     const aliasMarkup = renderChatAlias(msg);
-    const rawText = decodeAngles(msg.message);
-    const inviteMatch = /<\(\s*invite\s*\)\s*:\s*(\d+)\s*>/i.exec(rawText);
-    const tournMatch = /<\(\s*tournament\s*\)\s*:\s*(\d+)\s*>/i.exec(rawText);
+    const rawText = msg.message || '';
+    const inviteId = extractInviteId(rawText);
+    const tournId = extractTournamentId(rawText);
 
-    if (inviteMatch) {
-      const roomId = Number(inviteMatch[1]);
+    if (inviteId !== null) {
+      const roomId = inviteId;
       const st = statusMap[roomId];
       const isFull = st?.has_guest === true || st?.joinable === false;
       if (isFull) return '';
@@ -135,20 +136,18 @@ export async function updateChatBox() {
             data-room-id="${roomId}"
             onclick="joinGameInvite(${roomId})"
           >Join match</button>`;
-      return `
-        <div class="msg" data-ts="${msg.timestamp}">
+      return `<div class="msg" data-ts="${msg.timestamp}">
           <span class="text-gray-400">[${timestamp}]</span>
           <span class="alias">${aliasMarkup}</span>:
           <span class="inline-flex items-center gap-2">
             <span class="italic text-green-300">invited you to play</span>
             ${buttonHtml}
           </span>
-        </div>
-      `;
+        </div>`;
     }
 
-    if (tournMatch) {
-      const lobbyId = Number(tournMatch[1]);
+    if (tournId !== null) {
+      const lobbyId = tournId;
       const st = lobbyStatusMap[lobbyId];
       if (!st?.joinable) return '';
       const buttonHtml = `<button
@@ -156,25 +155,21 @@ export async function updateChatBox() {
           data-tournament-join="1"
           onclick="joinTournamentInvite(${lobbyId})"
         >Join tournament (${st.count}/${st.size})</button>`;
-      return `
-        <div class="msg" data-ts="${msg.timestamp}">
+      return `<div class="msg" data-ts="${msg.timestamp}">
           <span class="text-gray-400">[${timestamp}]</span>
           <span class="alias">${aliasMarkup}</span>:
           <span class="inline-flex items-center gap-2">
             <span class="italic text-purple-300">invited you to an online tournament</span>
             ${buttonHtml}
           </span>
-        </div>
-      `;
+        </div>`;
     }
 
-    return `
-      <div class="msg" data-ts="${msg.timestamp}">
+    return `<div class="msg" data-ts="${msg.timestamp}">
         <span class="text-gray-400">[${timestamp}]</span>
         <span class="alias">${aliasMarkup}</span>:
-        <span class="body break-words">${escapeHtml(msg.message)}</span>
-      </div>
-    `;
+        <span class="body break-words">${escapeHtmlStrict(rawText)}</span>
+      </div>`;
   }).filter(Boolean).join('');
 
   chatBox.innerHTML = html;
