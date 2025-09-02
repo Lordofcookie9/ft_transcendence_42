@@ -1,10 +1,47 @@
 import { getUserInfo, logout } from '../users/userManagement.js';
-import { setContent, escapeHtml, showToast } from '../utility.js';
-import { route } from '../router.js';
+import { setContent, escapeHtml } from '../utility.js';
 import { initPongGame } from "../pong/pong.js";
 import { updateChatBox, updateCounter } from './chat.js';
+import { route } from '../router.js';
+
+// --- Chat polling guard to prevent duplicate intervals across re-renders ---
+let chatPollTimer: number | undefined;
+
+function stopChatPolling() {
+  if (chatPollTimer !== undefined) {
+    clearInterval(chatPollTimer);
+    chatPollTimer = undefined;
+  }
+}
+
+function startChatPolling() {
+  // Clear any existing interval before starting a new one
+  stopChatPolling();
+
+  // Do an immediate refresh and then poll every 3s while on Home
+  // Also skip polling when the tab is hidden to avoid bursts on tab return
+  const tick = () => {
+    if (document.hidden) return;
+    updateChatBox().catch(() => {});
+  };
+
+  tick();
+  chatPollTimer = window.setInterval(tick, 3000);
+}
+
+function handleLeftOnce(message?: string) {
+  try {
+    const now = Date.now();
+    const last = Number(localStorage.getItem('player.left.ts') || '0');
+    if (now - last < 1500) return;
+    localStorage.setItem('player.left.ts', String(now));
+  } catch {}
+  try { alert(message || 'host left. Going back home'); } catch {}
+  try { route('/home'); } catch { location.href = '/home'; }
+}
 
 export function renderHome() {
+  const alias = localStorage.getItem("alias") || "Guest";
   let userHtml = '';
 
   const userInfo = getUserInfo();
@@ -45,7 +82,7 @@ export function renderHome() {
       <a href="${profileHref}" onclick="route('${profileHref}')" class="fixed top-3 left-3 text-2xl font-semibold text-white hover:text-gray-300 z-50">${profileLabel}</a>
     </div>
 
-  <div class="flex flex-col items-center mt-6 space-y-10">
+    <div class="flex flex-col items-center mt-6 space-y-10">
       <h1 class="text-6xl font-bold">Transcendence</h1>
 
       ${userHtml} 
@@ -62,12 +99,25 @@ export function renderHome() {
         <div class="text-center">
           <h2 class="text-xl font-semibold mb-2">Tournament (up to 8 players)</h2>
           <button onclick="startTournamentSetup()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Local Tournament</button>
-          <button onclick="goOnlineTournament()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Online Tournament</button>
+          <button id="btnOnlineTournament" onclick="startOnlineTournamentSetup()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Online Tournament</button>
         </div>
       </div>
-      <div id="active-tournament-slot" class="mt-4"></div>
     </div>
-  `);
+  `)
+  // Disable Online Tournament button for guests
+  try {
+    const btnOnline = document.getElementById('btnOnlineTournament') as HTMLButtonElement | null;
+    if (btnOnline) {
+      const ui = getUserInfo();
+      const isLogged = ui && (ui as any).type === 'loggedInUser';
+      if (!isLogged) {
+        btnOnline.setAttribute('disabled', 'true');
+        btnOnline.title = 'Log in to play online tournaments';
+        btnOnline.classList.add('opacity-50', 'cursor-not-allowed');
+      }
+    }
+  } catch {}
+;
 
   // Enable chat controls if the user is authenticated (JWT cookie)
   (async () => {
@@ -84,6 +134,14 @@ export function renderHome() {
           btn.removeAttribute('disabled');
           btn.removeAttribute('title');
         }
+        // Also enable Online Tournament button now that the user is authenticated
+        const btnOnline2 = document.getElementById('btnOnlineTournament') as HTMLButtonElement | null;
+        if (btnOnline2) {
+          btnOnline2.removeAttribute('disabled');
+          btnOnline2.removeAttribute('title');
+          btnOnline2.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+
       }
     } catch (_) {
       // remain disabled if not authenticated
@@ -92,46 +150,9 @@ export function renderHome() {
 
   document.getElementById('logout')?.addEventListener('click', logout);
   updateChatBox();
-  setInterval(updateChatBox, 3000);
+  startChatPolling();
   updateCounter(); // harmless if the element isn't present
-
-  // Inject a "Return to Lobby" button if user has an active online tournament
-  (async () => {
-    let lobbyId: string | null = null;
-    try { lobbyId = localStorage.getItem('tourn.lobby'); } catch {}
-    if (!lobbyId) return;
-    try {
-      const res = await fetch(`/api/tournament/${encodeURIComponent(lobbyId)}`, { credentials: 'include' });
-      if (!res.ok) return; // silently ignore
-      const snap = await res.json();
-      if (!snap?.ok) return;
-      const myId = Number(localStorage.getItem('userId') || '0');
-      const participant = snap.participants?.some((p:any)=> Number(p.user_id) === myId);
-      if (!participant) return; // user not in this lobby anymore
-      if (snap.lobby.status === 'finished' || snap.lobby.status === 'cancelled') return; // nothing to return to
-      const slot = document.getElementById('active-tournament-slot');
-      if (!slot) return;
-      slot.innerHTML = `
-        <button id="return-tourn-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded shadow relative">
-          Return to Tournament Lobby #${escapeHtml(String(snap.lobby.id))}
-        </button>`;
-      document.getElementById('return-tourn-btn')?.addEventListener('click', () => {
-        route(`/tournament-online?lobby=${encodeURIComponent(String(snap.lobby.id))}`);
-      });
-    } catch {}
-  })();
 }
-
-// Exposed helper to enforce login before accessing online tournaments
-(window as any).goOnlineTournament = (window as any).goOnlineTournament || (() => {
-  const userId = localStorage.getItem('userId');
-  if (!userId) {
-    showToast('Log in to access online tournaments', 'info');
-    (window as any).route?.('/login');
-    return;
-  }
-  (window as any).route?.('/tournament-online-list');
-});
 
 // --- API Helpers ---
 export async function getCount(id: string): Promise<number> {
@@ -212,11 +233,11 @@ export async function renderLocal1v1() {
       <h1 class="text-3xl font-bold mb-4">Local 1v1</h1>
 
       <div class="flex justify-between items-center max-w-6xl mx-auto mb-4 px-8 text-xl font-semibold text-white">
-        <div id="player1-info" class="text-left w-1/3">
-          <span id="p1-name-text">${escapeHtml(leftName)}</span>
-          <span class="ml-2" id="p1-score-label">: ${escapeHtml(s1)}</span>
-        </div>
+        <div id="player1-info" class="text-left w-1/3">${escapeHtml(leftName)}: ${escapeHtml(s1)}</div>
         <button id="replay-btn" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded">Replay</button>
+         <p class="mt-2 text-sm text-gray-400">
+          Controls: left player use <strong>W,S</strong> — right player use <strong>Up</strong> and <strong>Down</strong> arrows
+         </p>
         <div id="player2-info" class="text-right w-1/3">${escapeHtml(rightName)}: ${escapeHtml(s2)}</div>
       </div>
 
@@ -251,46 +272,6 @@ export async function renderLocal1v1() {
 
   // Explicitly mark tournament UI inactive when in 1v1
   try { (window as any).tournament && ((window as any).tournament.uiActive = false); } catch {}
-
-  // Inline name editing removed: name now fixed from setup/localStorage
-}
-
-// Pre-game setup page to collect opponent name without a popup
-export function renderLocalSetup1v1() {
-  const defaultOpponent = localStorage.getItem('lastLocalOpponent') || 'Player 1';
-  const me = localStorage.getItem('display_name') || localStorage.getItem('alias') || 'Player 2';
-  setContent(`
-    <div class="max-w-md mx-auto mt-16 p-6 bg-gray-800 rounded-lg shadow">
-      <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white text-sm">← Back</a>
-      <h1 class="text-2xl font-bold mb-4 text-center">Local Match Setup</h1>
-      <form id="local-setup-form" class="space-y-4">
-        <div>
-          <label class="block text-sm mb-1">Opponent (Left Paddle)</label>
-          <input id="opponent-name" type="text" value="${escapeHtml(defaultOpponent)}" maxlength="30" class="w-full px-3 py-2 rounded text-black" required />
-          <p class="text-xs text-gray-400 mt-1">You will appear as: <strong>${escapeHtml(me)}</strong></p>
-        </div>
-        <div class="flex justify-end gap-2">
-          <button type="button" id="cancel-setup" class="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded text-white">Cancel</button>
-          <button type="submit" class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white">Start Game</button>
-        </div>
-      </form>
-    </div>
-  `);
-
-  document.getElementById('cancel-setup')?.addEventListener('click', () => route('/home'));
-  document.getElementById('local-setup-form')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const input = document.getElementById('opponent-name') as HTMLInputElement | null;
-    const val = (input?.value || '').trim();
-    if (!val) { input?.focus(); return; }
-    localStorage.setItem('p1', val);
-    localStorage.setItem('lastLocalOpponent', val);
-    const meName = localStorage.getItem('display_name') || localStorage.getItem('alias') || 'Player 2';
-    localStorage.setItem('p2', meName);
-    localStorage.setItem('p1Score','0');
-    localStorage.setItem('p2Score','0');
-    route('/local');
-  });
 }
 
 export async function renderLocalVsAI() {
@@ -366,7 +347,6 @@ export async function renderLocalVsAI() {
   localStorage.setItem("game.ai", "left"); // hint for the engine; we'll use this next
   (window as any).route?.('/local-ai');
 });
-
 
 export async function renderPrivate1v1() {
   document.body.style.display = 'block';
@@ -600,17 +580,9 @@ export async function renderPrivate1v1() {
     try { msg = JSON.parse(ev.data); } catch { return; }
 
       // go home on host leaving
-    if (msg.type === 'info' && typeof msg.message === 'string') {
-      try { alert(msg.message); } catch {}
-      try { route('/home'); } catch { location.href = '/home'; }
-      return;
-    }
+    if (msg.type === 'info' && typeof msg.message === 'string') { handleLeftOnce(msg.message); return; }
 
-    if (msg.type === 'opponent:left' && msg.role === 'host' && role === 'right') {
-      try { alert('host left. Going back home'); } catch {}
-      try { route('/home'); } catch { location.href = '/home'; }
-      return;
-    }
+    if (msg.type === 'opponent:left' && msg.role === 'host' && role === 'right') { handleLeftOnce('host left. Going back home'); return; }
     if (msg.type === 'hello' && msg.alias) {
       const name = String(msg.alias);
       if (role === 'left') {
@@ -733,4 +705,83 @@ export async function renderPrivate1v1() {
   updateNameplates();
 }
 
-// (Removed prompt-based startOnlineTournamentSetup in favor of dedicated setup page)
+declare global { interface Window { startOnlineTournamentSetup?: () => void; } }
+
+window.startOnlineTournamentSetup = async function startOnlineTournamentSetup() {
+  // Require authentication
+  try {
+    const resp = await fetch('/api/profile', { credentials: 'include' });
+    if (!resp.ok) {
+      alert('Please log in to create an online tournament.');
+      return;
+    }
+  } catch {
+    alert('Please log in to create an online tournament.');
+    return;
+  }
+
+  // Ask for size (3–8)
+  let numStr = prompt('How many players (3–8)?');
+  if (numStr === null) return;
+  let size = parseInt(numStr, 10);
+  while (!Number.isInteger(size) || size < 3 || size > 8) {
+    numStr = prompt('Please enter a valid number between 3 and 8:');
+    if (numStr === null) return;
+    size = parseInt(numStr, 10);
+  }
+
+  // Alias mode
+  const useUsername = confirm('Use your username as your tournament alias? Click "Cancel" to type a custom alias.');
+  let alias_mode: 'username' | 'custom' = useUsername ? 'username' : 'custom';
+  let alias: string | undefined;
+  if (alias_mode === 'custom') {
+    let a = prompt('Enter your alias (1–40 chars):');
+    if (a === null) return;
+    a = a.trim().slice(0, 40);
+    while (!a) {
+      a = prompt('Alias required (1–40 chars):') || '';
+      if (a === null) return;
+      a = a.trim().slice(0, 40);
+    }
+    alias = a;
+  }
+
+  // Create lobby
+  let lobbyId: number | null = null;
+  try {
+    const res = await fetch('/api/tournament', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ size, alias_mode, alias })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.lobby_id) throw new Error(data?.error || 'Failed to create tournament');
+    lobbyId = data.lobby_id;
+  } catch (err: any) {
+    alert(err?.message || 'Failed to create tournament.');
+    return;
+  }
+
+  // Announce invite in public chat (host shares lobby id)
+  try {
+    const msg = `<(tournament):${lobbyId}>`;
+    await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ message: msg })
+    });
+  } catch {}
+
+  // Go to lobby page
+  (window as any).route?.(`/tournament-online?lobby=${encodeURIComponent(String(lobbyId))}`);
+};
+
+// Ensure chat polling stops when navigating away
+window.addEventListener('beforeunload', stopChatPolling);
+window.addEventListener('popstate', stopChatPolling);
+
+
+// Expose a global stop to allow router to clean up when navigating away
+try { (window as any).__stopChatPolling = stopChatPolling; } catch {}
