@@ -134,6 +134,56 @@ export function startPresenceHeartbeat() {
   // Don’t mark offline on simple tab switches; we no longer do that on visibilitychange
 }
 
+// --- Toast Notifications (non-blocking alternative to alert) ---
+export type ToastKind = 'info' | 'success' | 'error';
+export function showToast(message: string, kind: ToastKind = 'info', opts: { timeout?: number } = {}) {
+  if (!message) return;
+  let root = document.getElementById('toast-root');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'toast-root';
+    // Bottom-right stack
+    root.className = 'fixed bottom-4 right-4 z-[100] flex flex-col-reverse gap-2 pointer-events-none';
+    document.body.appendChild(root);
+  }
+  const colors: Record<ToastKind, string> = {
+    info: 'bg-gray-700/95 border-gray-400 shadow-gray-900/50',
+    success: 'bg-emerald-600/95 border-emerald-300 shadow-emerald-900/40',
+    error: 'bg-red-600/95 border-red-300 shadow-red-900/40'
+  };
+  const el = document.createElement('div');
+  el.className = `pointer-events-auto border px-4 py-2 rounded-md shadow-lg text-sm text-white/95 backdrop-blur-sm transition-opacity duration-500 ${colors[kind]}`;
+  el.textContent = message;
+
+  // Close button
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.innerHTML = '&times;';
+  closeBtn.setAttribute('aria-label', 'Close');
+  closeBtn.className = 'ml-3 text-white/70 hover:text-white';
+  closeBtn.onclick = () => dismiss();
+  const wrap = document.createElement('div');
+  wrap.className = 'flex items-start';
+  const msgSpan = document.createElement('span');
+  msgSpan.textContent = message;
+  el.textContent = '';
+  wrap.appendChild(msgSpan);
+  wrap.appendChild(closeBtn);
+  el.appendChild(wrap);
+
+  // For bottom stack newest at bottom, append then reorder using flex-col-reverse
+  root.appendChild(el);
+  const timeout = opts.timeout ?? 4000;
+  let timeoutId: number | null = window.setTimeout(() => dismiss(), timeout);
+
+  function dismiss() {
+    if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+    el.classList.add('opacity-0');
+    setTimeout(() => { el.remove(); if (root && !root.childElementCount) root.remove(); }, 500);
+  }
+  return { dismiss };
+}
+
 export async function getJSON<T = any>(url: string, opts?: { silent404?: boolean }) {
   const res = await fetch(url);
   if (!res.ok) {
@@ -153,3 +203,8 @@ export function toastOnce(key: string, message: string) {
   (window as any)[k] = true;
   try { alert(message); } catch {}
 }
+
+// Convenience wrappers
+export const toastInfo = (m: string, t?: number) => showToast(m, 'info', { timeout: t });
+export const toastSuccess = (m: string, t?: number) => showToast(m, 'success', { timeout: t });
+export const toastError = (m: string, t?: number) => showToast(m, 'error', { timeout: t });
