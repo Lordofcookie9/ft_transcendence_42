@@ -348,6 +348,7 @@ export async function renderLocalVsAI() {
   (window as any).route?.('/local-ai');
 });
 
+
 export async function renderPrivate1v1() {
   document.body.style.display = 'block';
   document.body.style.height = 'auto';
@@ -777,6 +778,7 @@ window.startOnlineTournamentSetup = async function startOnlineTournamentSetup() 
   // Go to lobby page
   (window as any).route?.(`/tournament-online?lobby=${encodeURIComponent(String(lobbyId))}`);
 };
+
 
 // Ensure chat polling stops when navigating away
 window.addEventListener('beforeunload', stopChatPolling);

@@ -4,6 +4,46 @@ import { route } from '../router.js';
 import { getUserInfo } from '../users/userManagement.js';
 import { initPongGame } from '../pong/pong.js';
 
+function onBackToLobby(ev: Event, lobbyId: number) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  // ensure the match WS is closed so the server sees the host leaving
+  try { (window as any).__tournRoomCleanup?.(); } catch {}
+  const inProg = !!(window as any).__matchInProgress;
+  if (inProg) {
+    // host leaves mid-game: mirror the broadcast message locally for the leaver
+    try { alert('a host left mid game, the tournament is canceled. You will be brought home'); } catch {}
+    route('/home');
+    return false;
+  }
+  // not in progress (e.g., after gameover): safe to return to lobby
+  route(`/tournament-online?lobby=${lobbyId}`);
+  return false;
+}
+
+function handleAbortOnce(payload?: any) {
+  try {
+    const now = Date.now();
+    const last = Number(localStorage.getItem('tourn.abort.ts') || '0');
+    if (now - last < 1500) return;
+    localStorage.setItem('tourn.abort.ts', String(now));
+  } catch {}
+  try {
+    const lid = String(payload?.lobbyId || localStorage.getItem('tourn.lobby') || '');
+    if (lid) {
+      localStorage.removeItem('tourn.lobby');
+      localStorage.removeItem('tourn.match');
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('tourn.room2lobby.')) localStorage.removeItem(k);
+      }
+    }
+  } catch {}
+  try { (window as any).__matchInProgress = false; (window as any).__activeTournamentHostLobbyId = undefined; } catch {}
+      alert(String(payload?.message || 'a host left mid game, the tournament is canceled. You will be brought home'));
+  try { route('/home'); } catch { location.href = '/home'; }
+}
+
 type MatchLite = {
   id: number;
   round: number;
@@ -37,14 +77,14 @@ export async function renderOnlineTournamentRoom() {
   setContent(`
     <a
       href="/tournament-online?lobby=${lobbyId}"
-      onclick="route('/tournament-online?lobby=${lobbyId}')"
+      onclick="return onBackToLobby(event, ${lobbyId})"
       class="fixed top-4 left-4 z-[60] bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm"
     >← Back to lobby</a>
 
     <div class="text-center mt-10">
       <h1 class="text-3xl font-bold mb-2">Tournament Match</h1>
       <div class="text-gray-400 text-sm mb-1">
-        Lobby #${escapeHtml(String(lobbyId))} — Match #${escapeHtml(String(matchId))}
+         Controls : left player use W,S right player use up and down arrow
       </div>
 
       <div id="host-controls" class="mt-3 hidden">
@@ -84,8 +124,22 @@ export async function renderOnlineTournamentRoom() {
   try {
     const res = await fetch(`/api/game/room/${roomId}/join`, { method: 'POST', credentials: 'include' });
     const data = await res.json();
+    if (res.status === 410 || String(data?.error || '') === 'tournament_cancelled') {
+      alert('This tournament was cancelled. You will be brought home.');
+      route('/home');
+      return;
+    }
     if (!res.ok) throw new Error(data?.error || `Join failed (${res.status})`);
     role = data.role;
+    // If I am the room host and this room belongs to a tournament, mark it globally
+    try {
+      const isRoomHost = (role === 'left');
+      if (isRoomHost && lobbyId) {
+        // Defer marking until we actually see gameplay traffic
+        (window as any).__activeTournamentHostLobbyId = String(lobbyId);
+        (window as any).__matchInProgress = false; // will flip to true on first state/input
+      }
+    } catch {}
     hostAlias  = data.host_alias || 'P1';
     guestAlias = data.guest_alias || WAITING;
   } catch (e: any) {
@@ -142,7 +196,10 @@ export async function renderOnlineTournamentRoom() {
 
   let guestJoined = guestAlias && guestAlias !== WAITING;
 
-  const setHostAliasMaybe = (name?: string | null) => {
+  
+  // New: only allow starting once we receive a server presence event
+  let guestConnected: boolean = false;
+const setHostAliasMaybe = (name?: string | null) => {
     const n = (name || '').trim();
     if (!n || n === WAITING) return;
     hostAlias = n;
@@ -154,10 +211,7 @@ export async function renderOnlineTournamentRoom() {
     const n = (name || '').trim();
     if (!n || n === WAITING) return;
     guestAlias = n;
-    guestJoined = true;
     try { localStorage.setItem('p2', guestAlias); } catch {}
-    if (btnStart) btnStart.disabled = false;
-    if (startHint) startHint.textContent = 'Opponent is here. You can start!';
     updateNameplates();
     try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { right: guestAlias } })); } catch {}
   };
@@ -182,17 +236,24 @@ export async function renderOnlineTournamentRoom() {
     document.body.appendChild(el);
     el.querySelector<HTMLButtonElement>('#btn-back')?.addEventListener('click', () => {
       el.remove();
-      route(`/tournament-online?lobby=${encodeURIComponent(String(lobbyId))}`);
+      route('/tournament-online?lobby=' + encodeURIComponent(String(lobbyId)));
     });
   };
 
   // Build WebSocket
   const wsProto  = location.protocol === 'https:' ? 'wss' : 'ws';
-  const wsURL    = `${wsProto}://${location.host}/ws/game/${roomId}?role=${role}`;
-  const ws = new WebSocket(wsURL);
+  const __uid    = Number(localStorage.getItem('userId') || '0');
+  const ws = new WebSocket(`${wsProto}://${location.host}/ws/game/${roomId}/${(role === 'left') ? 'host' : 'guest'}?lobbyId=${encodeURIComponent(String(lobbyId))}&userId=${__uid}`);
+  // This tab is the authoritative source for "in progress" from the host's perspective.
+  (window as any).__matchInProgress = false;
 
   // Clean shutdown
-  const cleanup = () => { try { ws.close(1001, 'navigate'); } catch {} };
+  const cleanup = () => {
+    try { ws.close(1001, 'navigate'); } catch {}
+    try { (window as any).__activeTournamentHostLobbyId = undefined; } catch {}
+    try { (window as any).__matchInProgress = false; } catch {}
+  };
+  try { (window as any).__tournRoomCleanup = cleanup; } catch {}
   window.addEventListener('beforeunload', cleanup);
   window.addEventListener('popstate', cleanup);
 
@@ -266,8 +327,8 @@ export async function renderOnlineTournamentRoom() {
   // Show/enable Start button only for host
   if (role === 'left' && hostControls && btnStart) {
     hostControls.classList.remove('hidden');
-    btnStart.disabled = !guestJoined;
-    if (guestJoined && startHint) startHint.textContent = 'Opponent is here. You can start!';
+    btnStart.disabled = !guestConnected;
+    if (guestConnected && startHint) startHint.textContent = 'Opponent is here. You can start!';
   }
 
   // Helpers that always prefer bracket alias, not usernames
@@ -285,67 +346,60 @@ export async function renderOnlineTournamentRoom() {
     let msg: any;
     try { msg = JSON.parse(ev.data); } catch { return; }
 
-    switch (msg.type) {
-      case 'tournament:aborted': {
-        try { alert(String(msg.message || 'A player has left the tournament, you will be brought home.')); } catch {}
-        try { route('/home'); } catch { location.href = '/home'; }
-        return;
+    if (msg && msg.type === 'tournament:aborted') {
+      try { alert(String(msg.message || 'a host left mid game, the tournament is canceled. You will be brought home')); } catch {}
+      try { route('/home'); } catch { location.href = '/home'; }
+      return;
+    }
+
+    if (msg.type === 'opponent:joined') {
+      if (role === 'left' && msg.role === 'guest') {
+        guestConnected = true;
+        if (btnStart) btnStart.disabled = false;
+        if (startHint) startHint.textContent = 'Opponent is here. You can start!';
+        setGuestAliasMaybe(preferBracketForGuest(msg.alias));
+      } else if (role === 'right' && msg.role === 'host') {
+        setHostAliasMaybe(preferBracketForHost(msg.alias));
       }
-      case 'opponent:joined': {
-        if (role === 'left' && msg.role === 'guest') setGuestAliasMaybe(preferBracketForGuest(msg.alias));
-        else if (role === 'right' && msg.role === 'host') setHostAliasMaybe(preferBracketForHost(msg.alias));
-        return;
-      }
-      case 'hello': {
-        if (!msg.alias) return; // ignore invalid
-        if (role === 'left') {
-          localStorage.setItem('p2', String(msg.alias));
-          guestAlias = preferBracketForGuest(String(msg.alias));
-          guestJoined = true;
+      return;
+    }
+
+    if (msg.type === 'hello' && msg.alias) {
+      // Back-compat; still favor bracket alias
+      if (role === 'left') setGuestAliasMaybe(preferBracketForGuest(String(msg.alias)));
+      else setHostAliasMaybe(preferBracketForHost(String(msg.alias)));
+      return;
+    }
+
+    if (role === 'left' && msg.type === 'input' && pushGuestInputToEngine) {
+      (window as any).__matchInProgress = true;
+      pushGuestInputToEngine({ up: !!msg.up, down: !!msg.down });
+      return;
+    }
+    if (role === 'right' && msg.type === 'state' && applyStateFromHost) {
+      (window as any).__matchInProgress = true;
+      applyStateFromHost(msg.state);
+      try {
+        const scores = (msg.state && (msg.state.scores || {})) || {};
+        const left  = Number((scores.left  ?? msg.state?.leftScore  ?? msg.state?.p1Score ?? msg.state?.scoreLeft)  ?? 0);
+        const right = Number((scores.right ?? msg.state?.rightScore ?? msg.state?.p2Score ?? msg.state?.scoreRight) ?? 0);
+        if (Number.isFinite(left) && Number.isFinite(right)) {
+          try { localStorage.setItem('p1Score', String(left)); } catch {}
+          try { localStorage.setItem('p2Score', String(right)); } catch {}
           updateNameplates();
-          if (btnStart) btnStart.disabled = false;
-          if (startHint) startHint.textContent = 'Opponent is here. You can start!';
-          try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { right: guestAlias } })); } catch {}
-          if (!engineStarted) setTimeout(() => { if (!engineStarted && guestJoined) startHostGame(); }, 1200);
-        } else {
-          localStorage.setItem('p1', String(msg.alias));
-          hostAlias = preferBracketForHost(String(msg.alias));
-          updateNameplates();
-          try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { left: hostAlias } })); } catch {}
+          try { window.dispatchEvent(new CustomEvent('pong:score', { detail: { left, right } })); } catch {}
         }
-        return;
-      }
-      case 'input': {
-        if (role === 'left' && pushGuestInputToEngine) {
-          pushGuestInputToEngine({ up: !!msg.up, down: !!msg.down });
-        }
-        return;
-      }
-      case 'state': {
-        if (role === 'right' && applyStateFromHost) {
-          applyStateFromHost(msg.state);
-          try {
-            const scores = (msg.state && (msg.state.scores || {})) || {};
-            const left  = Number((scores.left  ?? msg.state?.leftScore  ?? msg.state?.p1Score ?? msg.state?.scoreLeft)  ?? 0);
-            const right = Number((scores.right ?? msg.state?.rightScore ?? msg.state?.p2Score ?? msg.state?.scoreRight) ?? 0);
-            if (Number.isFinite(left) && Number.isFinite(right)) {
-              try { localStorage.setItem('p1Score', String(left)); } catch {}
-              try { localStorage.setItem('p2Score', String(right)); } catch {}
-              updateNameplates();
-              try { window.dispatchEvent(new CustomEvent('pong:score', { detail: { left, right } })); } catch {}
-            }
-          } catch {}
-        }
-        return;
-      }
-      case 'gameover': {
-        updateNameplates();
-        showEndOverlay(msg.detail);
-        if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
-        return;
-      }
-      default:
-        return;
+      } catch {}
+      return;
+    }
+
+    if (msg.type === 'gameover') {
+      (window as any).__matchInProgress = false;
+      try { (window as any).__activeTournamentHostLobbyId = undefined; } catch {}
+      updateNameplates();
+      showEndOverlay(msg.detail);
+      if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
+      return;
     }
   });
 
@@ -370,9 +424,79 @@ export async function renderOnlineTournamentRoom() {
     ws.send(JSON.stringify({ type: 'hello', alias: myAlias, role }));
   });
 
-  // (Removed duplicate startHostGame definition; original earlier definition handles host start & auto-start)
+  // Host-only: start once guest joined AND button clicked
+  const startHostGame = () => {
+    if (!guestConnected) { if (startHint) startHint.textContent = 'Waiting for opponent to join…'; return; }
+    if (engineStarted) return;
+    engineStarted = true;
+    if (hostControls) hostControls.remove();
+
+    try { localStorage.setItem('p1', hostAlias); } catch {}
+    if (guestAlias !== WAITING) { try { localStorage.setItem('p2', guestAlias); } catch {} }
+    try { localStorage.setItem('p1Score', '0'); localStorage.setItem('p2Score', '0'); } catch {}
+
+    initPongGame(container as HTMLElement, async () => {
+      try { localStorage.removeItem('game.inProgress'); } catch {}
+      const hostScore  = parseInt(localStorage.getItem('p1Score') || '0', 10);
+      const guestScore = parseInt(localStorage.getItem('p2Score') || '0', 10);
+
+      let winnerAlias = '—';
+      if (Number.isFinite(hostScore) && Number.isFinite(guestScore)) {
+        winnerAlias = hostScore > guestScore ? hostAlias : guestAlias;
+      }
+
+      // Map winner_slot relative to bracket P1/P2
+      let winner_slot: 'p1' | 'p2' | undefined;
+      if (Number.isFinite(hostScore) && Number.isFinite(guestScore) && hostScore !== guestScore) {
+        const hostWon = hostScore > guestScore;
+        winner_slot = hostWon
+          ? (bracketP1Side === 'host' ? 'p1' : 'p2')
+          : (bracketP1Side === 'guest' ? 'p1' : 'p2');
+      }
+      let p1_score: number | undefined;
+      let p2_score: number | undefined;
+      if (bracketP1Side === 'host') { p1_score = hostScore; p2_score = guestScore; }
+      else { p1_score = guestScore; p2_score = hostScore; }
+
+      try { (window as any).__matchInProgress = false; (window as any).__activeTournamentHostLobbyId = undefined; } catch {}
+      const detail = winnerAlias !== '—' ? { winner: winnerAlias } : {};
+      if (ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'gameover', detail })); } catch {}
+      }
+
+      if (!postedComplete) {
+        postedComplete = true;
+        try {
+          await fetch(`/api/tournament/${lobbyId}/match/${matchId}/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              winner_slot,
+              host_score: hostScore,
+              guest_score: guestScore,
+              p1_score, p2_score
+            }),
+          });
+        } catch {}
+      }
+
+      showEndOverlay(detail);
+    }, {
+      control: 'left',
+      netMode: 'host',
+      emitState: (state: any) => {
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'state', state }));
+      },
+      onRemoteInput: (register: any) => { pushGuestInputToEngine = register; },
+    });
+  };
+
   if (role === 'left' && btnStart) {
-    btnStart.addEventListener('click', () => { if (!guestJoined) return; startHostGame(); });
+    btnStart.addEventListener('click', () => {
+      if (!guestConnected) return;
+      startHostGame();
+    });
   }
 
   // Guest engine

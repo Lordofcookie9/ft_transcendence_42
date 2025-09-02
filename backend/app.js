@@ -14,6 +14,8 @@ const registerMetricsRoutes = require('./routes/metrics');
 const registerPresenceRoutes = require('./routes/presence');
 const registerTournamentRoutes = require('./routes/tournament');
 const registerHostMonitor = require('./routes/host-monitor');
+const registerInactivityMonitor = require('./routes/inactivity-monitor');
+const { registerMetrics, httpRequests } = require('./monitor/monitor'); 
 
 async function start() {
   const fastify = Fastify({
@@ -24,7 +26,7 @@ async function start() {
   // DB & users
   const db = await initDb();
   fastify.decorate('db', db);
-  await registerUsers(fastify); // sets up JWT/auth & /api/users*
+  await registerUsers(fastify);
 
   // Sockets
   const { wss, liveRooms } = registerSockets(fastify);
@@ -38,6 +40,16 @@ async function start() {
   registerPresenceRoutes(fastify);
   registerTournamentRoutes(fastify);
   registerHostMonitor(fastify);
+  registerInactivityMonitor(fastify);
+
+ // Monitor
+  registerMetrics(fastify); 
+
+  fastify.addHook("onResponse", (req, reply, done) => {
+    const route = req.routerPath || req.url || "unknown";
+    httpRequests.labels(req.method, route, reply.statusCode).inc();
+    done();
+  });
 
   // Static & uploads
   fastify.register(fastifyStatic, {

@@ -1,0 +1,29 @@
+groups:
+  - name: transcendance-alerts
+    rules:
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend is down"
+          description: "Prometheus could not scrape the backend for 30s."
+        
+      - alert: LowDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk almost full"
+          description: "Root filesystem < 10% free."
+
+      - alert: HighHttpRequests
+        expr: rate(http_requests_total[1m]) > 50
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP request rate"
+          description: "More than 5 req/sec on backend for 1m."

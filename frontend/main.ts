@@ -3,11 +3,13 @@ import { renderUserList, renderUserProfile } from './users/userManagement.js';
 import { uiPrompt, uiAlert } from './ui/modal.js';
 import { renderEntryPage, renderHome, updateCounter, updateChatBox } from './pages/index.js'
 import { route, handleLocation } from './router.js';
+import { connectGlobalWS } from './wsGlobal.js';
 
 
 //const app = document.getElementById('app');
 
 console.log("Main loaded ✅");
+connectGlobalWS();
 
 function isPageReload(): boolean {
   try {

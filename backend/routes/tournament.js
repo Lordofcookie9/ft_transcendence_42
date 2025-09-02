@@ -53,7 +53,13 @@ module.exports = function registerTournamentRoutes(fastify) {
           FOREIGN KEY (room_id) REFERENCES game_rooms(id) ON DELETE SET NULL
         )
       `);
-    } catch (e) {
+    
+      // Track last activity per lobby (match starts/completes etc.)
+      try {
+        await fastify.db.run(`ALTER TABLE tournament_lobbies ADD COLUMN last_activity_at DATETIME`);
+        await fastify.db.run(`UPDATE tournament_lobbies SET last_activity_at = COALESCE(started_at, created_at, CURRENT_TIMESTAMP) WHERE last_activity_at IS NULL`);
+      } catch (_) { /* ignore if column exists */ }
+} catch (e) {
       fastify.log.error({ e }, 'Failed to ensure tournament tables');
     }
   })();
@@ -317,10 +323,12 @@ module.exports = function registerTournamentRoutes(fastify) {
         [me, size]
       );
       const lobbyId = insLobby.lastID;
+      await fastify.db.run(`UPDATE tournament_lobbies SET last_activity_at=CURRENT_TIMESTAMP WHERE id = ?`, [lobbyId]);
       await fastify.db.run(
         `INSERT INTO tournament_participants (lobby_id, user_id, alias) VALUES (?, ?, ?)`,
         [lobbyId, me, myAlias]
       );
+      await fastify.db.run(`UPDATE tournament_lobbies SET last_activity_at=CURRENT_TIMESTAMP WHERE id = ?`, [lobbyId]);
       await fastify.db.run('COMMIT');
       return reply.send({ ok: true, lobby_id: lobbyId });
     } catch (err) {
@@ -341,6 +349,7 @@ module.exports = function registerTournamentRoutes(fastify) {
         [lobbyId]
       );
       if (!lobby) return reply.code(404).send({ error: 'lobby_not_found' });
+      if (String(lobby.status) === 'cancelled') return reply.code(404).send({ error: 'tournament_cancelled' });
 
       const parts = await fastify.db.all(
         `SELECT tp.user_id, tp.alias, u.display_name
@@ -390,6 +399,7 @@ module.exports = function registerTournamentRoutes(fastify) {
         [lobbyId]
       );
       if (!lobby) return reply.code(404).send({ error: 'lobby_not_found' });
+      if (String(lobby.status) === 'cancelled') return reply.code(404).send({ error: 'tournament_cancelled' });
       if (lobby.status !== 'waiting') return reply.code(400).send({ error: 'lobby_not_joinable' });
 
       const currentRow = await fastify.db.get(
@@ -440,6 +450,7 @@ module.exports = function registerTournamentRoutes(fastify) {
         [lobbyId]
       );
       if (!lobby) return reply.code(404).send({ error: 'lobby_not_found' });
+      if (String(lobby.status) === 'cancelled') return reply.code(404).send({ error: 'tournament_cancelled' });
       if (Number(lobby.host_id) !== Number(me)) return reply.code(403).send({ error: 'not_host' });
       if (lobby.status !== 'waiting') return reply.code(400).send({ error: 'already_started' });
 
@@ -455,7 +466,7 @@ module.exports = function registerTournamentRoutes(fastify) {
 
       await fastify.db.run('BEGIN');
       await fastify.db.run(
-        `UPDATE tournament_lobbies SET status='started', started_at=CURRENT_TIMESTAMP WHERE id = ?`,
+        `UPDATE tournament_lobbies SET status='started', started_at=CURRENT_TIMESTAMP, last_activity_at=CURRENT_TIMESTAMP WHERE id = ?`,
         [lobbyId]
       );
       await seedRoundZero(fastify, lobbyId);
@@ -534,6 +545,7 @@ module.exports = function registerTournamentRoutes(fastify) {
 
       const lobby = await fastify.db.get(`SELECT id, size, status FROM tournament_lobbies WHERE id = ?`, [lobbyId]);
       if (!lobby) return reply.code(404).send({ error: 'lobby_not_found' });
+      if (String(lobby.status) === 'cancelled') return reply.code(404).send({ error: 'tournament_cancelled' });
       if (lobby.status !== 'started') {
         return reply.send({ ok: true, state: await getTournamentState(fastify, lobbyId) });
       }
@@ -642,5 +654,12 @@ module.exports = function registerTournamentRoutes(fastify) {
       req.log && req.log.error && req.log.error({ err }, 'complete_match_failed');
       return reply.code(500).send({ error: 'complete_match_failed' });
     }
+  });
+  
+  // Host-triggered cancel (used when a match host navigates away)
+  fastify.post('/api/tournament/:id/abort', async (req, reply) => {
+    const lobbyId = String(req.params.id);
+    await fastify.broadcastTournamentAbort(lobbyId, 'host_left_match');
+    return { ok: true };
   });
 };

@@ -545,6 +545,12 @@ fastify.get('/api/user/:id', async (req, reply) => {
         VALUES (?, ?, 'pending')`,
         [friendId, userId]
       );
+      
+      await db.run(
+        `INSERT INTO private_messages (sender_id, recipient_id, message)
+         VALUES (?, ?, ?)`,
+        [userId, friendId, 'sent you an invitation, go on their profile to add them back.']
+      );
       await db.run('COMMIT');
       reply.send({ success: true });
     } catch (err) {

@@ -88,9 +88,22 @@ export async function updateChatBox() {
   ));
   type LobbyStatus = { joinable: boolean; count: number; size: number };
   const lobbyStatusMap: Record<number, LobbyStatus> = {};
+  // Avoid hammering the API for destroyed tournaments (404). Cache in sessionStorage for 5 minutes.
+  const DEAD_KEY = 'dead.tournaments';
+  let dead: Record<number, number> = {};
+  try { dead = JSON.parse(sessionStorage.getItem(DEAD_KEY) || '{}'); } catch { dead = {}; }
+
   await Promise.all(tournamentIds.map(async (tid) => {
     try {
+      // skip if recently known dead
+      const deadAt = (dead as any)[tid];
+      if (deadAt && (Date.now() - Number(deadAt)) < 5 * 60 * 1000) return;
       const resp = await fetch(`/api/tournament/${tid}`, { credentials: 'include' });
+      if (resp.status === 404) {
+        (dead as any)[tid] = Date.now();
+        try { sessionStorage.setItem(DEAD_KEY, JSON.stringify(dead)); } catch {}
+        return;
+      }
       if (!resp.ok) return;
       const d = await resp.json();
       if (d?.lobby) {

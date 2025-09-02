@@ -1,5 +1,29 @@
-import { setContent, escapeHtml } from '../utility.js';
+import { setContent, escapeHtml, getJSON, toastOnce } from '../utility.js';
 import { route } from '../router.js';
+
+function handleAbortOnce(payload?: any) {
+  // Prevent repeat alerts for the same lobby
+  try {
+    const lidStr = String(payload?.lobbyId || localStorage.getItem('tourn.lobby') || '');
+    const lastLid = localStorage.getItem('tourn.abort.lobby') || '';
+    if (lidStr && lidStr === lastLid) {
+      try { (window as any).__matchInProgress = false; (window as any).__activeTournamentHostLobbyId = undefined; } catch {}
+      return;
+    }
+    if (lidStr) localStorage.setItem('tourn.abort.lobby', lidStr);
+  } catch {}
+
+  try {
+    const now = Date.now();
+    const last = Number(localStorage.getItem('tourn.abort.ts') || '0');
+    if (now - last < 1500) return;
+    localStorage.setItem('tourn.abort.ts', String(now));
+  } catch {}
+  try { (window as any).__matchInProgress = false; (window as any).__activeTournamentHostLobbyId = undefined; } catch {}
+  alert(String(payload?.message || 'a host left mid game, the tournament is canceled. You will be brought home'));
+  try { route('/home'); } catch { location.href = '/home'; }
+}
+
 
 type LobbySnapshot = {
   ok: boolean;
@@ -24,6 +48,20 @@ type TM = {
 };
 
 let pollTimer: number | undefined;
+
+// Provide a global cleanup hook used by the router to stop lobby polling when navigating away
+;(window as any).__tournLobbyCleanup = () => {
+  try {
+    if (pollTimer) {
+      clearInterval(pollTimer as any);
+      pollTimer = null as any;
+    }
+  } catch (e) {
+    console.warn('tournament lobby cleanup failed', e);
+  }
+};
+
+
 let syncing = false;
 
 function labelOf(u: number|null, p1: string|null, p2: string|null, isP1: boolean): string {
@@ -135,6 +173,7 @@ function renderWinnerBanner(snap?: LobbySnapshot | null): void {
 
 export async function renderOnlineTournamentLobby() {
   // Safety: remove any leftover overlay from older builds
+  
   try { document.getElementById('tourn-winner-overlay')?.remove(); } catch {}
 
   const params = new URLSearchParams(location.search);
@@ -150,12 +189,10 @@ export async function renderOnlineTournamentLobby() {
       <h1 class="text-3xl font-bold">Online Tournament Lobby</h1>
       <div id="winner-banner"></div>
       <div id="lobby-info" class="text-white"></div>
-  <div id="host-controls-bar" class="flex items-center gap-3 items-end">
+      <div class="flex items-center gap-3 items-end" id="start-area">
         <div class="flex-1 text-sm text-gray-400" id="host-note"></div>
         <button id="start-btn" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded disabled:opacity-50" disabled>Start tournament</button>
       </div>
-  <div id="progress-msg" class="hidden text-sm text-amber-300">Tournament in progress…</div>
-  <div id="invite-token" class="text-sm text-gray-400">Copy & paste this token in chat to invite: <code class="bg-gray-800 px-2 py-0.5 rounded">&lt;(tournament):${lobbyId}&gt;</code></div>
       <div id="participants" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3"></div>
     </div>
   `);
@@ -164,7 +201,8 @@ export async function renderOnlineTournamentLobby() {
   let __tournamentFinished = false; // once set, ignore aborts and close the socket
   try { (window as any).__tLobbyAbortWS?.close(1000); } catch {}
   const __wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const __abortURL = `${__wsProto}://${location.host}/ws/?lobbyId=${encodeURIComponent(String(lobbyId))}`;
+  const __uid = Number(localStorage.getItem('userId') || '0');
+  const __abortURL = `${__wsProto}://${location.host}/ws/?lobbyId=${encodeURIComponent(String(lobbyId))}&userId=${__uid}`;
   const __abortWS = new WebSocket(__abortURL);
   (window as any).__tLobbyAbortWS = __abortWS;
 
@@ -226,16 +264,25 @@ export async function renderOnlineTournamentLobby() {
     let snap: LobbySnapshot | null = null;
     try {
       const res = await fetch(`/api/tournament/${lobbyId}`, { credentials:'include' });
+      if (!res.ok) {
+        const suppress = (window as any).__suppressLobby404Until || 0;
+        if (res.status === 404 && Date.now() < suppress) {
+          route('/home');
+          return;
+        }
+        toastOnce('tournament-missing', 'This tournament no longer exists.');
+        route('/home');
+        return;
+      }
       snap = await res.json();
-    } catch {}
+      } catch {}
 
     const info = document.getElementById('lobby-info');
     const list = document.getElementById('participants');
     const startBtn = document.getElementById('start-btn') as HTMLButtonElement | null;
     const note = document.getElementById('host-note') as HTMLDivElement | null;
-  const hostBar = document.getElementById('host-controls-bar');
-  const invite = document.getElementById('invite-token');
-  const progressMsg = document.getElementById('progress-msg');
+    
+    const startArea = document.getElementById('start-area') as HTMLDivElement | null;
     if (!info || !list || !snap || !snap.ok) return;
 
     // If the tournament is finished, disable/close abort socket so no redirects can happen
@@ -258,45 +305,47 @@ export async function renderOnlineTournamentLobby() {
     renderWinnerBanner(snap);
 
     info.innerHTML = `
-      <div>Status: <span class="font-semibold">${escapeHtml(snap.lobby.status)}</span></div>
-      <div>Players: <span class="font-semibold">${snap.count}/${snap.lobby.size}</span></div>
-      <div>Lobby ID: <span class="font-mono">${snap.lobby.id}</span></div>
-      ${Number(localStorage.getItem('userId')||'0') === Number(snap.lobby.host_id) ? `<div class="text-green-300">You are the host</div>` : ``}
-    `;
+        <div>Status: <span class="font-semibold">${escapeHtml(snap.lobby.status)}</span></div>
+        <div>Players: <span class="font-semibold">${snap.count}/${snap.lobby.size}</span></div>
+        ${Number(localStorage.getItem('userId')||'0') === Number(snap.lobby.host_id) ? `<div class="text-green-300">You are the host</div>` : ``}
+      `;
 
     const myId = Number(localStorage.getItem('userId') || '0');
     const iAmHost = myId && Number(snap.lobby.host_id) === myId;
     const isFull = snap.count === snap.lobby.size;
     const canStart = snap.lobby.status === 'waiting' && isFull && iAmHost;
 
-    if (note) {
-      if (!iAmHost) note.textContent = 'Only the host can start the tournament.';
-      else if (!isFull) note.textContent = `Waiting for ${snap.spots_left} more…`;
-      else note.textContent = 'Ready to start.';
-    }
-
+    
+    
+    if (startArea) startArea.classList.toggle('hidden', snap.lobby.status !== 'waiting');
+// Hide the start area once the tournament is no longer waiting
     if (snap.lobby.status === 'waiting') {
+      if (startArea) startArea.classList.remove('hidden');
+      if (note) {
+      if (snap.lobby.status !== 'waiting') {
+        note.textContent = '';
+      } else if (iAmHost) {
+        if (!isFull) {
+          note.textContent = `Waiting for ${snap.spots_left} more…`;
+        } else {
+          note.textContent = 'Ready to start.';
+        }
+      } else {
+        note.textContent = '';
+      }
+    }
       if (startBtn) {
         startBtn.style.display = iAmHost ? '' : 'none';
         startBtn.disabled = !canStart;
       }
-      if (hostBar) hostBar.classList.remove('hidden');
-      if (invite) invite.classList.remove('hidden');
-      if (progressMsg) progressMsg.classList.add('hidden');
     } else {
-      // Hide controls & invite once started / finished / cancelled
-      if (hostBar) hostBar.classList.add('hidden');
-      if (invite) invite.classList.add('hidden');
-      if (progressMsg) {
-        if (snap.lobby.status === 'started') progressMsg.classList.remove('hidden');
-        else progressMsg.classList.add('hidden');
-      }
+      if (startArea) startArea.classList.add('hidden');
+      if (note) note.textContent = '';
+      if (startBtn) startBtn.style.display = 'none';
     }
-
-    list.innerHTML = snap.participants.map(p => `
+list.innerHTML = snap.participants.map(p => `
       <div class="border border-gray-700 rounded p-3">
-        <div class="text-sm text-gray-400">${escapeHtml(p.display_name)}</div>
-        <div class="text-xl font-semibold">${escapeHtml(p.alias)}</div>
+        <div class="text-xl font-semibold">${escapeHtml(p.alias || p.display_name)}</div>
       </div>
     `).join('') + (snap.spots_left > 0 ? `
       <div class="border border-dashed border-gray-700 rounded p-3 text-gray-500 italic">
