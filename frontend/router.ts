@@ -23,6 +23,8 @@ import {
 } from './pages/index.js';
 
 import { startPresenceHeartbeat } from './utility.js';
+import { renderLegal, renderPrivacy, renderTerms, renderCookies } from './pages/legalPages.js';
+
 
 try {
   if (localStorage.getItem('userId')) startPresenceHeartbeat();
@@ -51,6 +53,10 @@ const routes: Record<string, () => Promise<void> | void> = {
   '/tournament-online-lobby': renderOnlineTournamentLobby, // legacy alias
   '/tournament-online': renderOnlineTournamentLobby,
   '/tournament-room': renderOnlineTournamentRoom,
+  '/legal': renderLegal,
+  '/privacy': renderPrivacy,
+  '/terms': renderTerms,
+  '/cookies': renderCookies,
 };
 
 export function route(path: string) {
@@ -105,10 +111,12 @@ export async function handleLocation() {
   if (path.startsWith('/profile/')) {
     const id = parseInt(path.split('/')[2]);
     await renderUserProfile(id);
+    (window as any).maybeCenter?.();
     return;
   }
   if (path === '/login' && new URLSearchParams(location.search).get('created') === '1') {
     renderOauthSuccess();
+    (window as any).maybeCenter?.();
     return;
   }
 
@@ -124,4 +132,5 @@ export async function handleLocation() {
 
   const page = routes[path] || renderNotFound;
   await page();
+  (window as any).maybeCenter?.();
 }

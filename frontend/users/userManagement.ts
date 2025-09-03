@@ -1,8 +1,7 @@
 import { sendPrivateMessage } from '../pages/pages.js';
-import { setContent, formatDbDateTime, startPresenceHeartbeat } from '../utility.js';
+import { uiAlert, uiConfirm, uiPrompt } from '../ui/modal.js';
+import { setContent, formatDbDateTime, startPresenceHeartbeat, showToast } from '../utility.js';
 import { route } from '../router.js';
-
-
 import { renderEntryPage } from '../pages/pages.js';
 
 function escapeHTML(str: string) {
@@ -22,208 +21,66 @@ function escapeHTML(str: string) {
 
 export async function renderRegister() {
 	setContent(`
-		<h1>Create Account</h1>
-		
-		<form id="register-form" class="flex flex-col gap-2 mt-4">
-			<input name="display_name" type="text" placeholder="Public Name" required minlength="1" class="p-2 border text-black" />
-			<input name="email" type="email" placeholder="Email" required class="p-2 border text-black" />
-			<input name="password" type="password" placeholder="Password" required minlength="8" pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[@$!%*?&amp;]).{8,}$"
- 				title="Must contain at least 8 characters, one uppercase, one lowercase, one number, and one special character '@$!%*?'" class="p-2 border text-black" />
-			<div class="flex items-center gap-2">
-			  <input id="avatar" name="avatar" type="file" accept="image/*" class="p-2 border text-black" />
-			  <label for="avatar" class="text-sm text-gray-300">Upload profile picture</label>
+	<div class="max-w-md mx-auto mt-10 bg-gray-800/70 backdrop-blur rounded-xl shadow-lg border border-gray-700 p-6 text-white">
+		<h1 class="text-2xl font-bold mb-4 text-center">Create Account</h1>
+		<form id="register-form" class="flex flex-col gap-4">
+			<input name="display_name" type="text" placeholder="Public name" required minlength="1" class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+			<input name="email" type="email" placeholder="Email" required class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+			<input name="password" type="password" placeholder="Password" required minlength="8" pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[@$!%*?&amp;]).{8,}$" title="Must contain at least 8 characters, one uppercase, one lowercase, one number, and one special character '@$!%*?'" class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+			<div class="flex flex-col gap-2">
+				<div class="flex items-center gap-3 flex-wrap">
+					<input id="avatar" name="avatar" type="file" accept="image/*" class="hidden" />
+					<label for="avatar" class="cursor-pointer inline-flex items-center gap-2 bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm">
+						<span id="avatar-label-text">Choose avatar</span>
+					</label>
+					<span class="text-xs text-gray-400">(optional)</span>
+				</div>
+				<div id="avatar-filename" class="text-xs text-gray-400 line-clamp-1"></div>
 			</div>
-
-			<label class="flex items-center gap-2">
-				<input type="checkbox" id="enable-2fa" /> Enable 2FA
-			</label>
-
-			<div id="2fa-options" class="hidden flex-col gap-2 border p-2">
-				<label>
-					<input type="radio" name="twofa_method" value="email" /> Email
+			<div class="space-y-2">
+				<label class="flex items-center gap-2 text-sm">
+					<input type="checkbox" id="enable-2fa" class="accent-indigo-500" /> Enable 2FA
 				</label>
-				<label>
-					<input type="radio" name="twofa_method" value="app" /> Authenticator App
-				</label>
+				<div id="2fa-options" class="hidden flex-col gap-2 border border-gray-600 rounded p-3 bg-gray-900/60 text-sm">
+					<label class="flex items-center gap-2"><input type="radio" name="twofa_method" value="email" class="accent-indigo-500"/> Email</label>
+					<label class="flex items-center gap-2"><input type="radio" name="twofa_method" value="app" class="accent-indigo-500"/> Authenticator App</label>
+				</div>
 			</div>
-
-			<button type="submit" class="bg-green-600 text-white px-4 py-2">Register</button>
-
-			<div class="flex items-center my-6">
-				<div class="flex-grow h-px bg-gray-500"></div>
-				<span class="px-2 text-gray-400 text-sm">OR</span>
-				<div class="flex-grow h-px bg-gray-500"></div>
-			</div>
-
-			<div class="mt-2 flex flex-col gap-2">
-				<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-400 rounded px-4 py-2 hover:bg-gray-100 text-black bg-white">
-					<img src="/assets/42_Logo.svg" alt="42" class="w-6 h-6" />
-					<span class="font-medium">Continue with 42</span>
-				</button>
-			</div>
+			<button type="submit" class="mt-2 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white font-medium px-4 py-2 rounded">Register</button>
 		</form>
-	`);
-
-	const form = document.getElementById('register-form') as HTMLFormElement;
-	const enable2FA = document.getElementById('enable-2fa') as HTMLInputElement;
-	const twoFAOptions = document.getElementById('2fa-options') as HTMLDivElement;
-	const avatarInput = form.querySelector('#avatar') as HTMLInputElement | null;
-	let twofaVerified = 0;
-	let twofaMethod: string | null = null;
-	const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-	enable2FA?.addEventListener('change', () => {
-		twoFAOptions.classList.toggle('hidden', !enable2FA.checked);
+	</div>`);
+	const form = document.getElementById('register-form') as HTMLFormElement | null;
+	const enable2FA = document.getElementById('enable-2fa') as HTMLInputElement | null;
+	const twoFAOptions = document.getElementById('2fa-options') as HTMLDivElement | null;
+	const avatarInput = document.getElementById('avatar') as HTMLInputElement | null;
+	const avatarFilename = document.getElementById('avatar-filename') as HTMLDivElement | null;
+	avatarInput?.addEventListener('change', () => {
+		if (avatarInput.files && avatarInput.files[0]) {
+			avatarFilename && (avatarFilename.textContent = avatarInput.files[0].name);
+		} else if (avatarFilename) {
+			avatarFilename.textContent = '';
+		}
 	});
-	
+	let twofaVerified = 0;
+	enable2FA?.addEventListener('change', () => twoFAOptions?.classList.toggle('hidden', !enable2FA.checked));
 	form?.addEventListener('submit', async (e) => {
 		e.preventDefault();
-		const email = (form.querySelector('[name="email"]') as HTMLInputElement).value.trim();
-		twofaMethod = enable2FA.checked ? (form.querySelector('[name="twofa_method"]:checked') as HTMLInputElement)?.value : null;
-
-		if (enable2FA.checked && !twofaMethod) {
-			alert('Please select a 2FA method or uncheck 2FA.');
-			return;
-		}
-
-		if (!enable2FA.checked) {
-
-			const formData = new FormData(form);
-			formData.set('enable_2fa', 'false');
-
-			if (!avatarInput?.files?.length) {
-				formData.delete('avatar');
+		const formData = new FormData(form);
+		if (enable2FA?.checked) formData.set('enable_2fa', 'true'); else formData.set('enable_2fa', 'false');
+		try {
+			const res = await fetch('/api/register', { method: 'POST', body: formData });
+			if (res.ok) {
+				const user = await res.json();
+				localStorage.setItem('userId', user.id);
+				localStorage.setItem('display_name', user.display_name);
+				startPresenceHeartbeat();
+				route('/profile');
+			} else {
+				uiAlert('Error: ' + (await res.text()));
 			}
-			registerUser(formData);
-		}
-		else {
-
-			if (twofaMethod === 'email' && !emailPattern.test(email)) {
-				alert('Valid email required for Email 2FA.');
-				return;
-			}
-
-			if (twofaMethod === 'email' || twofaMethod === 'app') {
-
-				const res = await fetch('/api/2fa/send-code', {
-								method: 'POST',
-								headers: { 'Content-Type': 'application/json' },
-								body: JSON.stringify({ twofaMethod, email }),
-							});
-
-				if (!res.ok) {
-					alert('Error sending verification code. Try later.');
-					renderRegister();
-				}
-								
-				if (twofaMethod === 'email') {
-
-					setContent(`
-						<h1 class="text-xl font-bold text-center">Set up your Two-Factor Authentication</h1>
-						<p class="mt-2">Enter the 2FA code received in ${twofaMethod}</p>
-						<form id="twofa-codes" class="flex flex-col gap-2 mt-4">
-						<input type="text" name="code" placeholder="Enter code" class="p-2 border text-black" />
-						<button type="submit" class="bg-gray-300 text-black font-bold px-4 py-2">Verify</button>
-						</form>
-
-						<br>
-						<button onclick="route('/register')" class="bg-gray-400 hover:bg-gray-600 text-white px-6 py-2 rounded">
-							Back to create account
-						</button>
-					`);
-				}
-				else if (twofaMethod === 'app') {
-
-					const { qrCodeDataURL } = await res.json();
-
-					setContent(`
-						<h1 class="text-xl font-bold text-center">Set up your Two-Factor Authentication</h1>				
-						<div id="twofa-codes-div" class="mt-4 p-4 border rounded bg-gray-100">
-							<p class="mb-2 font-medium text-black text-center">Scan this QR code in your Authenticator App to get your code:</p>
-							<img id="twofa-qr" class="mb-4 w-40 h-40 mx-auto" />
-							<form id="twofa-codes" class="flex flex-col gap-2 mt-4">
-							<input type="text" name="code" placeholder="Enter code" class="p-2 border text-black" />
-							<button type="submit" class="bg-gray-300 text-black font-bold px-4 py-2">Verify</button>
-							</form>
-						</div>
-						<br>
-						<button onclick="route('/register')" class="bg-gray-400 hover:bg-gray-600 text-white px-6 py-2 rounded">
-							Back to create account
-						</button>
-					`);
-
-					const qrImg = document.getElementById("twofa-qr") as HTMLImageElement;
-					qrImg.src = qrCodeDataURL;
-				}
-				document.getElementById("twofa-codes")!.addEventListener("submit", async (e) => {
-					e.preventDefault();
-					const formData = new FormData(e.target as HTMLFormElement);
-					const code = formData.get("code")?.toString().trim();
-					if (!code) return alert("2FA code required");
-
-					const verifyRes = await fetch('/api/2fa/verify-code', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ twofaMethod, email, code }),
-					});
-
-					if (verifyRes.ok) {
-						//alert('Contact verified!');
-						twofaVerified = 1;
-
-						const formData = new FormData(form);
-						formData.set('enable_2fa', enable2FA.checked ? 'true' : 'false');
-
-						const avatarInput = form.querySelector('#avatar') as HTMLInputElement | null;
-						if (!avatarInput?.files?.length) {
-						formData.delete('avatar');
-						}
-
-						if (enable2FA.checked && twofaMethod) {
-							formData.set('twofa_method', twofaMethod);
-							formData.set('twofa_verified', String(twofaVerified));
-						}
-
-						await registerUser(formData);	
-					}
-					else {
-						alert('Verification failed. Please try again.');
-						return renderRegister();
-					}
-				});
-			}
-		}
-	});
-
-	document.getElementById("oauth")?.addEventListener("click", () => {
-		window.location.href = "/api/auth/42";
+		} catch (err: any) { uiAlert(err?.message || 'Network error'); }
 	});
 }
-
-async function registerUser(formData: FormData) {
-	try {
-	  const res = await fetch('/api/register', {
-		method: 'POST',
-		body: formData,
-	  });
-  
-	  if (res.ok) {
-		alert('Well done! Account created!');
-		const user = await res.json();
-		localStorage.setItem("userId", user.id);
-		localStorage.setItem("display_name", user.display_name);
-		startPresenceHeartbeat();
-		await route('/profile');
-	  } else {
-		const msg = await res.text();
-		alert('Error: ' + msg);
-		renderRegister();
-	  }
-	} catch (err) {
-	  console.error(err);
-	  alert(err instanceof Error ? err.message : 'Network error');
-	}
-  }
 
 export function renderOauthSuccess() {
 	setContent(`
@@ -236,151 +93,34 @@ export function renderOauthSuccess() {
   }
   
 
-function renderProfileHTML(user: User) {
-	return `
-	<div class="flex justify-between items-start p-4">
-	  <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
-	</div>
-  
-	<div class="max-w-xl mx-auto mt-10 space-y-6">
-	  <div class="text-center space-y-2">
-		<img src="${user.avatar_url}" alt="Avatar" class="w-36 h-36 rounded-full mx-auto shadow object-cover" id="avatar-preview" />
-  
-		<form id="avatar-form" class="flex items-center justify-center space-x-2 mt-2">
-		  <input
-			id="avatar-upload"
-			name="avatar"
-			type="file"
-			accept="image/*"
-			class="hidden"
-		  />
-		  <label
-			for="avatar-upload"
-			class="cursor-pointer w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-400"
-			title="Change avatar"
-		  >
-			📁
-		  </label>
-		  <button
-			type="submit"
-			class="text-xs text-gray-600 bg-gray-100 rounded px-2 py-0.5 hover:bg-gray-200"
-		  >
-			Save
-		  </button>
-		</form>
-	  </div>
-  
-	  <h2 class="text-center text-white font-bold text-2xl">${escapeHTML(user.display_name)}</h2>
-  
-	  <div class="text-center max-w-xs mx-auto">
-		<form id="name-form" class="flex items-center space-x-2">
-		  <input
-			type="text"
-			name="display_name"
-			placeholder="Enter new name"
-			value=""
-			class="flex-grow p-1 border border-gray-300 rounded text-gray-600 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
-		  />
-		  <button
-			type="submit"
-			class="text-xs text-gray-700 bg-gray-100 rounded px-3 py-1 hover:bg-gray-200"
-			title="Save new name"
-		  >
-			Change name
-		  </button>
-		</form>
-	  </div>
-
-
-	  <div class="text-center max-w-xs mx-auto">
-		<form id="password-form" class="flex items-center space-x-2">
-		  <input type="password" name="password" placeholder="Enter new password"
-			required minlength="8"
-			class="flex-grow p-1 border border-gray-300 rounded text-gray-600 text-sm 
-			focus:outline-none focus:ring-1 focus:ring-blue-400"/>
-		  <button type="submit"
-			class="text-xs text-gray-700 bg-gray-100 rounded px-3 py-1 hover:bg-gray-200"
-			title="Set or change password">Set password</button>
-		</form>
-	  </div>
-  
-	  <div class="text-center max-w-xs mx-auto space-y-1">
-		<p class="text-sm text-gray-500">${user.email}</p>
-			<form id="email-form" class="flex items-center space-x-2 max-w-xs mx-auto">
-				<input type="email" name="email" placeholder="Enter new email" value="${user.email}" class="flex-grow p-1 border border-gray-300 rounded text-gray-600 text-sm" />
-				<button type="submit" class="text-xs text-gray-700 bg-gray-100 rounded px-3 py-1 hover:bg-gray-200">Change email</button>
-			</form>
-
-		<p class="text-sm text-gray-500">
-		${user.twofa_enabled 
-		? `You are using 2FA ${user.twofa_method === 'email' ? 'email authentification' : 'Authenticator App'}` 
-		: 'You are not using 2FA authentification'}
-		</p>
-	<div class="max-w-xs mx-auto border p-3 rounded bg-gray-50  text-gray-700">
-
-		<label class="flex items-center gap-2 mb-2">
-			<input type="checkbox" id="enable-2fa" ${user.twofa_enabled ? "checked" : ""}/>
-			<span>Enable 2FA</span>
-			${user.twofa_verified ? `<span class="text-green-600 text-sm">✅ Verified</span>` : ""}
-		</label>
-		<div id="2fa-options" class="${user.twofa_enabled ? "" : "hidden"} flex flex-col gap-2">
-			<label>
-				<input type="radio" name="twofa_method" value="email" ${user.twofa_method === 'email' ? "checked" : ""}/> Email
-				<input type="radio" name="twofa_method" value="app" ${user.twofa_method === 'app' ? "checked" : ""}/> Authenticator App
-			</label>
-			<button id="save-2fa" class="mt-2 bg-blue-500 text-white px-3 py-1 rounded text-sm">Save 2FA Settings</button>
-		</div>
-
-		<div id="twofa-verification-container" class="mt-4"></div>
-	</div>
-
-
-		<span class="inline-block text-xs px-2 py-1 rounded-full ${
-		  user.account_status === 'online'
-			? 'bg-green-200 text-green-800'
-			: user.account_status === 'offline'
-			? 'bg-gray-200 text-gray-600'
-			: 'bg-red-200 text-red-700'
-		}">${user.account_status}</span>
-  
-		<div class="text-sm text-gray-600">
-		  <p><strong>Joined: </strong> ${new Date(user.created_at).toLocaleString()}</p>
-		  <p><strong>Last Online: </strong> Online now</p>
-		</div>
-  
-		<button id="logout" class="bg-gray-400 text-white px-4 py-2 rounded">Logout</button>
-		<button id="delete-profile-btn" class="bg-gray-400 text-white px-4 py-2 rounded">Delete Account</button>
-  
-		<div class="mt-10">
-		  <button onclick="route('/users')" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded">
-			Find New Friends
-		  </button>
-		  <div id="users-list" class="mt-6 max-w-2xl mx-auto"></div>
-		</div>
-
-		<div class="text-center mt-4">
-        <a href="/profile/${encodeURIComponent(user.id)}" 
-           onclick="route('/profile/${encodeURIComponent(user.id)}'); return false;" 
-           class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
-           View your Public Page
-        </a>
-      	</div>
-		
-		<br/>
-
-		<button onclick="route('/home')" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded">
-			Go Play Game
-		</button>
-	  </div>
-	</div>
-  `
-}
 
 function setProfileEvents(user: User) {
 
-	document.getElementById('logout')?.addEventListener('click', logout);
+		document.getElementById('logout')?.addEventListener('click', logout);
+		// Edit mode toggling
+		const toggle = document.getElementById('edit-profile-toggle');
+		const cancel = document.getElementById('edit-profile-cancel');
+		const editPanel = document.getElementById('profile-edit');
+		const roPanel = document.getElementById('profile-readonly');
+		const nameHeading = document.getElementById('profile-display-name');
+		function enterEdit() {
+			editPanel?.classList.remove('hidden');
+			roPanel?.classList.add('hidden');
+			toggle?.classList.add('hidden');
+			cancel?.classList.remove('hidden');
+		}
+		function leaveEdit(updatedName?: string) {
+			editPanel?.classList.add('hidden');
+			roPanel?.classList.remove('hidden');
+			toggle?.classList.remove('hidden');
+			cancel?.classList.add('hidden');
+			if (updatedName && nameHeading) nameHeading.textContent = updatedName;
+		}
+		toggle?.addEventListener('click', () => enterEdit());
+		cancel?.addEventListener('click', () => leaveEdit());
 	document.getElementById('delete-profile-btn')?.addEventListener('click', async () => {
-		  if (!confirm('Are you sure you want to delete your profile?')) return;
+		  const really = await uiConfirm('Are you sure you want to delete your profile? This cannot be undone.','Delete Account');
+		  if (!really) return;
   
 		  const res = await fetch('/api/delete-account', {
 		  method: 'DELETE',
@@ -388,63 +128,112 @@ function setProfileEvents(user: User) {
 		  });
   
 		  if (res.ok) {
-		  try {
-		  if (navigator.sendBeacon) {
-			const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
-			navigator.sendBeacon('/api/presence/offline', blob);
+		    try {
+		      if (navigator.sendBeacon) {
+		        const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
+		        navigator.sendBeacon('/api/presence/offline', blob);
+		      } else {
+		        await fetch('/api/presence/offline', { method: 'POST', credentials: 'include' });
+		      }
+		    } catch {}
+		    localStorage.clear();
+		    route('/home');
+		    setTimeout(() => showToast('Account deleted', 'info'), 40);
 		  } else {
-			await fetch('/api/presence/offline', { method: 'POST', credentials: 'include' });
-		  }
-		  } catch {}
-		  localStorage.clear();
-		  alert('Account deleted.');
-		  route('/');
-		  } else {
-		  const err = await res.text();
-		  alert('Error: ' + err);
+		    const err = await res.text();
+		    showToast('Delete failed: ' + err, 'error');
 		  }
 	  });
+
+	document.getElementById('anonymize-account-btn')?.addEventListener('click', async () => {
+    if (user.anonymized) { showToast('Already anonymized', 'info'); return; }
+    const ok = await uiConfirm(
+`IRREVERSIBLE ACTION
+
+Your display name, email, avatar, password and OAuth links will be destroyed.
+You WILL lose access and cannot log back in (even with 42 OAuth).
+
+Your stats and past matches stay, but no recovery is possible.
+
+Proceed?`,
+'Erase & Anonymize'
+    );
+    if (!ok) return;
+    try {
+        const res = await fetch('/api/account/anonymize', { method: 'POST', credentials: 'include' });
+        if (res.ok) {
+            localStorage.clear();
+            route('/home');
+            setTimeout(()=>showToast('Account anonymized (access lost)', 'info'), 40);
+        } else {
+            showToast('Failed: ' + (await res.text()), 'error');
+        }
+    } catch (e) {
+        console.error(e);
+        showToast('Network error', 'error');
+    }
+});
   
-	document.getElementById('name-form')?.addEventListener('submit', async (e) => {
+	// Unified profile info form (name + email)
+	const profileInfoForm = document.getElementById('profile-info-form') as HTMLFormElement | null;
+	// Inject an inline error container if not present
+	if (profileInfoForm && !profileInfoForm.querySelector('#profile-info-error')) {
+		const div = document.createElement('div');
+		div.id = 'profile-info-error';
+		div.className = 'hidden mt-2 bg-red-900/70 border border-red-600 text-red-200 px-3 py-2 rounded text-sm';
+		profileInfoForm.appendChild(div);
+	}
+	profileInfoForm?.addEventListener('submit', async (e) => {
 		e.preventDefault();
-  
-	  const form = e.target as HTMLFormElement;
-	  const newName = form.display_name.value.trim();
-	  const originalName = localStorage.getItem("display_name")?.trim();
-  
-	  if (!newName) {
-		  alert("Display name cannot be empty.");
-		  return;
-	  }
-  
-	  if (newName === originalName) {
-		  alert("Nothing changed.");
-		  return;
-	  }
-  
-	  try {const res = await fetch('/api/name', {
-		  method: 'PATCH',
-		  credentials: 'include',
-		  headers: {
-			  'Content-Type': 'application/json',
-		  },
-		  body: JSON.stringify({ display_name: newName })
-		  });
-  
-		  if (res.ok) {
-		  const result = await res.json();
-		  localStorage.setItem('display_name', result.user.display_name);
-		  alert('Name updated!');
-		  renderProfile();
-		  } else {
-		  const msg = await res.text();
-		  alert('Error: ' + msg);
-		  }
-	  } catch (err) {
-		  console.error(err);
-		  alert("Something went wrong while updating your profile.");
-	  }
-	  });
+		const form = e.target as HTMLFormElement;
+		const newName = (form.display_name?.value || '').trim();
+		const newEmail = (form.email?.value || '').trim();
+		const errorBox = form.querySelector('#profile-info-error') as HTMLDivElement | null;
+		if (errorBox) { errorBox.classList.add('hidden'); errorBox.textContent = ''; }
+		const origName = localStorage.getItem('display_name')?.trim() || user.display_name;
+		const origEmail = user.email;
+		const tasks: Promise<Response>[] = [];
+		if (newName && newName !== origName) {
+			tasks.push(fetch('/api/name', { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ display_name: newName }) }));
+		}
+		if (newEmail && newEmail !== origEmail) {
+			tasks.push(fetch('/api/email', { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: newEmail }) }));
+		}
+		if (!tasks.length) {
+			alert('Nothing changed.');
+			return;
+		}
+		try {
+			const results = await Promise.all(tasks);
+			const failed = results.find(r => !r.ok);
+			if (failed) {
+				const msg = await failed.text();
+				if (errorBox) {
+					let text = msg || 'Update failed';
+					// Backend sends JSON for duplicate name; attempt to parse
+					try {
+						const j = JSON.parse(msg);
+						if (j?.error) text = j.error;
+					} catch {}
+					if (/display name already in use/i.test(text) || /already exists/i.test(text)) {
+						errorBox.textContent = 'That username is already used.';
+					} else {
+						errorBox.textContent = text;
+					}
+					errorBox.classList.remove('hidden');
+				} else {
+					alert('Update failed: ' + msg);
+				}
+				return;
+			}
+			if (newName && newName !== origName) localStorage.setItem('display_name', newName);
+			showToast('Profile updated.', 'success');
+			renderProfile();
+		} catch (err) {
+			console.error(err);
+			if (errorBox) { errorBox.textContent = 'Network error.'; errorBox.classList.remove('hidden'); } else { alert('Network error.'); }
+		}
+	});
 
 	document.getElementById('password-form')?.addEventListener('submit', async (e) => {
 		e.preventDefault();
@@ -512,43 +301,10 @@ function setProfileEvents(user: User) {
 	  } else {
 		const msg = await res.text();
 		alert('Error: ' + msg);
-		renderProfile();
 	  }
 	});
 
-	// Email update
-	document.getElementById('email-form')?.addEventListener('submit', async (e) => {
-			e.preventDefault();
-			const newEmail = (e.target as HTMLFormElement).email.value.trim();
-			if (!newEmail) return alert("Email cannot be empty");
-	
-			const res = await fetch('/api/email', {
-				method: 'PATCH',
-				credentials: 'include',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ email: newEmail })
-			});
-			if (res.ok) {
-				if (user.twofa_method === 'email') {
-					alert('Email changed, please login again.');
-				try {
-				if (navigator.sendBeacon) {
-					const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
-					navigator.sendBeacon('/api/presence/offline', blob);
-				} else {
-					await fetch('/api/presence/offline', { method: 'POST', credentials: 'include' });
-				}
-				} catch {}
-				localStorage.clear();
-				route('/login');
-				}
-				else {
-					alert('Email updated!');
-					renderProfile();}
-			} else {
-				alert(await res.text());
-			}
-		});
+	// (Email form removed; handled by unified form)
 	
 	// 2fa update
 	const enable2FA = document.getElementById('enable-2fa') as HTMLInputElement;
@@ -583,113 +339,152 @@ function setProfileEvents(user: User) {
 		}
 	});
 
+	// GDPR export
+	document.getElementById('gdpr-export')?.addEventListener('click', async () => {
+		try {
+			const res = await fetch('/api/account/export', { credentials: 'include' });
+			if (!res.ok) { showToast('Export failed', 'error'); return; }
+			const data = await res.json();
+			const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = 'my_account_export.json';
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+			URL.revokeObjectURL(url);
+			showToast('Download started', 'success');
+		} catch (e) {
+			console.error(e);
+			showToast('Export error', 'error');
+		}
+	});
+
 	document.getElementById('save-2fa')?.addEventListener('click', async () => {
+		const method = (document.querySelector('[name="twofa_method"]:checked') as HTMLInputElement)?.value;
+		if (!method) return alert('Please select a 2FA method.');
+		if (enable2FA.checked && user.twofa_enabled && method === user.twofa_method) return alert('Nothing changed.');
+		if (!enable2FA.checked && !user.twofa_enabled) return alert('Nothing changed.');
 
-	const method = (document.querySelector('[name="twofa_method"]:checked') as HTMLInputElement)?.value;
-	if (!method) return alert('Please select a 2FA method.');
-
-	if (enable2FA.checked && user.twofa_enabled && method === user.twofa_method) {
-		return alert("Nothing changed.");
-	}
-
-	if (!enable2FA.checked && !user.twofa_enabled) {
-		return alert("Nothing changed.");
-	}
-
-	let res: Response | null = null;
-
-	if (enable2FA.checked && (method === 'email' || method === 'app')) {
-
-		if (!user.password_hash) {
-			  alert("You don't have password, set a password first.");
-			  return;
+		if (enable2FA.checked && (method === 'email' || method === 'app')) {
+			if (!user.password_hash) return alert("You don't have password, set a password first.");
+			const sendRes = await fetch('/api/2fa/send-code', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ twofaMethod: method, email: user.email })});
+			if (!sendRes.ok) { alert('Error sending verification code.'); return renderProfile(); }
+			if (method === 'app') {
+				const { qrCodeDataURL } = await sendRes.json();
+				const w = window.open('', 'QR Code', 'width=500,height=600,resizable=yes');
+				if (w) { w.document.write(`<h3>Scan this in your Authenticator App</h3><img src="${qrCodeDataURL}" />`); }
 			}
-		
-		res = await fetch('/api/2fa/send-code', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ twofaMethod: method , email: user.email })
-		});
-
-		if (!res.ok) {
-			alert('Error sending verification code. Try later.');
-			renderProfile();
+			const container = document.getElementById('twofa-verification-container');
+			if (!container) return;
+			container.innerHTML = `
+				<div class="mt-4 p-4 border rounded bg-gray-100 text-black">
+					<p class="mb-2">Enter the verification code:</p>
+					<form id="verify-2fa-form" class="flex flex-col gap-2">
+						<input type="text" name="code" placeholder="123456" class="p-2 border flex-grow" />
+						<div class="flex gap-2">
+							<button type="submit" class="bg-blue-700 text-white px-4 py-2 rounded">Verify</button>
+							<button type="button" id="cancel-2fa" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">Cancel</button>
+						</div>
+					</form>
+				</div>`;
+			document.getElementById('cancel-2fa')?.addEventListener('click', () => route('/profile'));
+			document.getElementById('verify-2fa-form')?.addEventListener('submit', async ev => {
+				ev.preventDefault();
+				const fd = new FormData(ev.target as HTMLFormElement);
+				const code = fd.get('code')?.toString().trim();
+				if (!code) return alert('Please enter the code');
+				const verify = await fetch('/api/2fa/verify-code', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ twofaMethod: method, email: user.email, code })});
+				if (!verify.ok) return alert('Verification failed.');
+				const changeRes = await fetch('/api/2fa/change', { method:'PATCH', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ twofaMethod: method, email: user.email })});
+				if (changeRes.ok) { alert('Updated!'); renderProfile(); } else { alert('Error: ' + await changeRes.text()); }
+			});
+		} else if (!enable2FA.checked && user.twofa_enabled) {
+			const disableRes = await fetch('/api/2fa/change', { method:'PATCH', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ twofaMethod: null, email: user.email })});
+			if (disableRes.ok) { alert('2FA disabled'); renderProfile(); } else { alert('Error: ' + await disableRes.text()); }
 		}
-						
-		if (method === 'app') {
+	});
 
-			const { qrCodeDataURL } = await res.json();
-			let qrWindow = window.open('', 'QR Code', 'width=500,height=600,resizable=yes');
-
-			if (qrWindow) {
-				qrWindow.document.open();
-				qrWindow.document.write(`<h3>Scan this in your Authenticator App</h3>`);
-				qrWindow.document.write(`<img src="${qrCodeDataURL}" />`);
-				qrWindow.document.close();
-				qrWindow.focus();
-			}	
-		}
-
-		const container = document.getElementById("twofa-verification-container");
-		container!.innerHTML = `
-			<div class="mt-4 p-4 border rounded bg-gray-100">
-			<p class="mb-2">Enter the verification code:</p>
-			<form id="verify-2fa-form" class="flex flex-col gap-2">
-				<input type="text" name="code" placeholder="123456" class="p-2 border text-black flex-grow" />
-				<button type="submit" class="bg-blue-700 text-white px-4 py-2 rounded">Verify</button>
-			</form>
-			</div>
-		<br>
-			<button onclick="route('/profile')" class="bg-gray-400 hover:bg-gray-600 text-white px-6 py-2 rounded">
-				Cancel
-			</button>
-		`;
-		  
-			document.getElementById("verify-2fa-form")!.addEventListener("submit", async (e) => {
-			  e.preventDefault();
-			  const formData = new FormData(e.target as HTMLFormElement);
-			  const code = formData.get("code")?.toString().trim();
-			  if (!code) return alert("Please enter the code");
-
-				const verifyRes = await fetch('/api/2fa/verify-code', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ twofaMethod: method, email: user.email, code})
-				});
-			
-				if (verifyRes.ok) {
-				try {const res = await fetch('/api/2fa/change', {
-					method: 'PATCH',
-					credentials: 'include',
-					headers: {
-						'Content-Type': 'application/json',
-					},
-					body: JSON.stringify({ twofaMethod: method, email: user.email})
-					});
-					if (res.ok) {
-					alert('Updated!');
-					renderProfile();
-					} else {
-					const msg = await res.text();
-					alert('Error: ' + msg);
-					}
-				} catch (err) {
-					console.error(err);
-					alert("Something went wrong while updating your profile.");
-				}
-				} else {
-					alert('Your email address or code may be wrong, cancel and try again.');}
-			})
-			}
-});
 }
 
+// New profile HTML with toggleable edit panel
+function renderProfileHTML(user: User): string {
+	const joined = new Date(user.created_at).toLocaleString();
+	const lastOnline = new Date(user.last_online).toLocaleString();
+	const statusBubble = `<span class="inline-block w-3 h-3 rounded-full ${user.account_status === 'online' ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}"></span>`;
+	return `
+	<div class="max-w-3xl mx-auto mt-10 text-white">
+		<div class="flex justify-between items-start mb-4">
+			<button id="edit-profile-toggle" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded text-sm">Edit</button>
+			<button id="edit-profile-cancel" class="hidden bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm">Cancel</button>
+		</div>
+		<div id="profile-readonly" class="space-y-6">
+			<div class="bg-gray-800/70 backdrop-blur border border-gray-700 rounded-xl p-6 shadow-lg">
+				<div class="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+					<img id="avatar-preview" src="${user.avatar_url}" class="w-32 h-32 rounded-full object-cover border-4 border-gray-700" />
+					<div class="flex-1 space-y-2 text-center sm:text-left">
+						<h1 id="profile-display-name" class="text-3xl font-bold flex items-center gap-2 justify-center sm:justify-start">${statusBubble}<span>${user.display_name}</span></h1>
+						<div class="text-sm text-gray-400 flex flex-col sm:flex-row sm:gap-4">
+							<span>Joined: ${joined}</span>
+							<span>Last Online: ${lastOnline}</span>
+						</div>
+					</div>
+				</div>
+				<div class="flex flex-wrap gap-2 justify-center sm:justify-end pt-4">
+					<button id="anonymize-account-btn" class="bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white px-3 py-1 rounded text-sm" ${user.anonymized ? 'disabled title="Already anonymized"' : ''}>${user.anonymized ? 'Account Anonymized' : 'Anonymize Account'}</button>
+					<button id="delete-profile-btn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">Delete Account</button>
+					<button id="logout" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded text-sm">Logout</button>
+				</div>
+			</div>
+			<div class="flex flex-wrap gap-4 justify-center">
+				<button onclick="route('/users')" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded">Find Friends</button>
+				<button onclick="route('/home')" class="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded">Play Game</button>
+				<a href="/profile/${user.id}" onclick="route('/profile/${user.id}'); return false;" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded">Public Page</a>
+			</div>
+		</div>
+		<div id="profile-edit" class="hidden space-y-8 bg-gray-800/70 backdrop-blur border border-gray-700 rounded-xl p-6 shadow-lg">
+			<form id="avatar-form" class="flex items-center justify-center gap-3 text-sm flex-wrap">
+				<input id="avatar-upload" name="avatar" type="file" accept="image/*" class="hidden" />
+				<label for="avatar-upload" class="cursor-pointer bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-white">Change Avatar</label>
+				<button type="submit" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded">Save Avatar</button>
+			</form>
+			<div class="flex flex-wrap gap-2 text-xs">
+				<button id="gdpr-export" type="button" class="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-white">Download My Data (JSON)</button>
+			</div>
+			<div id="twofa-verification-container" class="text-sm"></div>
+			<form id="profile-info-form" class="space-y-3">
+				<div class="flex gap-2 flex-wrap items-center">
+					<input type="text" name="display_name" value="${user.display_name}" placeholder="Display name" class="flex-grow p-2 rounded bg-gray-900 text-white text-sm border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+					<input type="email" name="email" value="${user.email}" placeholder="Email" class="flex-grow p-2 rounded bg-gray-900 text-white text-sm border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+					<button type="submit" class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded text-sm">Save Changes</button>
+				</div>
+			</form>
+			<form id="password-form" class="flex gap-2 flex-wrap items-center">
+				<input type="password" name="password" placeholder="New password" minlength="8" class="flex-grow p-2 rounded bg-gray-900 text-white text-sm border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+				<button type="submit" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-2 rounded text-sm">Save Password</button>
+			</form>
+			<div class="border border-gray-700 rounded p-4 space-y-2 bg-gray-900/60">
+				<label class="flex items-center gap-2 text-sm">
+					<input type="checkbox" id="enable-2fa" ${user.twofa_enabled ? 'checked' : ''}/> <span>Enable 2FA</span>
+					${user.twofa_verified ? '<span class="text-green-500">Verified</span>' : ''}
+				</label>
+				<div id="2fa-options" class="${user.twofa_enabled ? '' : 'hidden'} flex flex-wrap items-center gap-4 text-sm">
+					<label><input type="radio" name="twofa_method" value="email" ${user.twofa_method === 'email' ? 'checked' : ''}/> Email</label>
+					<label><input type="radio" name="twofa_method" value="app" ${user.twofa_method === 'app' ? 'checked' : ''}/> Auth App</label>
+					<button id="save-2fa" type="button" class="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-white text-sm">Save 2FA</button>
+				</div>
+			</div>
+		</div>
+	</div>`;
+}
 export type User = {
 	id: number;
 	email: string;
 	password_hash: string;
 	display_name: string;
 	avatar_url: string;
+	anonymized?: number; // 0 | 1
   
 	twofa_method: 'app' | 'email' | null;
 	twofa_secret: string | null;
@@ -773,12 +568,13 @@ export async function renderUserList() {
 		app.innerHTML = `
 
 		  <div class="flex justify-between items-start p-4">
-           <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
-    	</div>
-			<div class="max-w-4xl mx-auto p-4">
-				<h1 class="text-2xl font-bold mb-4">Users</h1>
-				<ul class="space-y-3">
-					${users.map((u: any) => {
+	           <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
+			</div>
+				<div class="max-w-4xl mx-auto p-4">
+					<h1 class="text-2xl font-bold mb-4">Users</h1>
+					<div class="border border-gray-700 rounded-lg bg-gray-800/70 backdrop-blur p-3" style="max-height:70vh; overflow-y:auto;" id="user-scroll">
+					<ul class="space-y-3 pr-2">
+						${users.map((u: any) => {
 						let friendStatusHTML = '';
 						const isSelf = u.id.toString() === currUser.userId;
 						if (isSelf){
@@ -809,8 +605,12 @@ export async function renderUserList() {
 							</li>`;
 					}).join('')}
 				</ul>
+				</div>
 			</div>
 		`;
+		// Ensure scroll starts at top each render
+		const scrollBox = document.getElementById('user-scroll');
+		if (scrollBox) scrollBox.scrollTop = 0;
 	} catch (err) {
 		console.error(err);
 		app.innerHTML = `<div class="text-red-500 text-center">Failed to load users</div>`;
@@ -818,7 +618,7 @@ export async function renderUserList() {
 }
 
 export async function renderUserProfile(userId: number) {
-  setContent(`<div class="text-center text-xl">Loading profile...</div>`);
+  setContent(`<div class="text-center text-xl mt-10">Loading profile...</div>`);
 
   try {
     const res = await fetch(`/api/user/${userId}`);
@@ -826,121 +626,134 @@ export async function renderUserProfile(userId: number) {
 
     const { user, history } = await res.json();
     const formatDate = (d: string) => formatDbDateTime(d);
-
     const currUser = getUserInfo();
     const isSelf = userId.toString() === localStorage.getItem("userId");
 
+    // Status bubble like private profile
+    const statusBubble = `<span class="inline-block w-3 h-3 rounded-full ${user.account_status === 'online' ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}"></span>`;
+
+    // Match history reused styling
+    const historyBlock = `
+      <h2 class="text-xl font-semibold mb-3">Recent Matches</h2>
+      <div class="max-h-72 overflow-y-auto pr-2">
+        <ul class="space-y-2">
+          ${
+            Array.isArray(history) && history.length
+              ? history.map((m: any) => {
+                  const score = (m?.your_score ?? null) !== null && (m?.opponent_score ?? null) !== null
+                    ? `${m.your_score} - ${m.opponent_score}`
+                    : '—';
+                  const when = m?.date ? formatDbDateTime(m.date) : '';
+                  const opp  = m?.opponent_name || `User #${m?.opponent_id ?? '?'}`;
+                  return `
+                    <li class="bg-gray-800/70 border border-gray-700 px-4 py-2 rounded flex flex-wrap gap-2 justify-between text-sm">
+                      <span class="font-medium">${escapeHTML(opp)}</span>
+                      <span class="text-indigo-300">${score}</span>
+                      <span class="text-gray-400">${when}</span>
+                    </li>`;
+                }).join('')
+              : `<li class="bg-gray-800/70 border border-gray-700 px-4 py-4 rounded text-center text-gray-400">No matches yet.</li>`
+          }
+        </ul>
+      </div>
+    `;
+
+    // Friend action buttons (reuse existing logic)
     let friendButtons = "";
-    let goProfile = "";
+    let manageOwnProfile = "";
 
-    // ---- Match History (last 50 private 1v1) ----
-	let historyBlock = `
-	<h2 class="text-xl font-semibold mb-2">Match History</h2>
-	<div class="max-h-64 md:max-h-80 overflow-y-auto pr-2">
-		<ul class="space-y-2">
-		${
-			Array.isArray(history) && history.length
-			? history.map((m: any) => {
-				const score =
-					(m?.your_score ?? null) !== null && (m?.opponent_score ?? null) !== null
-					? `${m.your_score} - ${m.opponent_score}`
-					: '—';
-				const when = m?.date ? formatDbDateTime(m.date) : '';
-				const opp  = m?.opponent_name || `User #${m?.opponent_id ?? '?'}`;
-				return `
-					<li class="bg-gray-700 px-4 py-2 rounded flex justify-between">
-					<span>${opp}</span>
-					<span>${score}</span>
-					<span class="text-gray-300">${when}</span>
-					</li>`;
-				}).join('')
-			: `<li class="bg-gray-700 px-4 py-2 rounded text-center text-gray-300">No matches yet.</li>`
-		}
-		</ul>
-	</div>
-	`;
+    if (currUser.type === "loggedInUser") {
+      if (!isSelf) {
+        if (user.friend_status === "adding") {
+          friendButtons = `
+            <div class="text-gray-300 text-sm">This user has sent you a friend request</div>
+            <div class="flex flex-wrap gap-2">
+              <button class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded text-sm" onclick="window.acceptFriend(${JSON.stringify(user.id)})">Accept</button>
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
+              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded text-sm" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm" onclick="window.startPrivateChat(${user.id}, '${escapeHTML(user.display_name)}')">Private Chat</button>
+            </div>`;
+        } else if (user.friend_status === "pending") {
+          friendButtons = `
+            <div class="text-gray-300 text-sm">Awaiting response to your friend request.</div>
+            <div class="flex flex-wrap gap-2">
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm" onclick="window.cancelAction(${JSON.stringify(user.id)})">Cancel request</button>
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
+              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded text-sm" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm" onclick="window.startPrivateChat(${user.id}, '${escapeHTML(user.display_name)}')">Private Chat</button>
+            </div>`;
+        } else if (user.friend_status === "accepted" || user.friend_status === "added") {
+          friendButtons = `
+            <div class="text-gray-300 text-sm">You are friends.</div>
+            <div class="flex flex-wrap gap-2">
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm" onclick="window.cancelAction(${JSON.stringify(user.id)})">Unfriend</button>
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
+              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded text-sm" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm" onclick="window.startPrivateChat(${user.id}, '${escapeHTML(user.display_name)}')">Private Chat</button>
+            </div>`;
+        } else if (user.friend_status === "blocked") {
+          friendButtons = `
+            <div class="flex flex-wrap gap-2">
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm" onclick="window.cancelAction(${JSON.stringify(user.id)})">Unblock</button>
+            </div>`;
+        } else {
+          friendButtons = `
+            <div class="flex flex-wrap gap-2">
+              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm" onclick="window.addFriend(${JSON.stringify(user.id)})">Add Friend</button>
+              <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
+              <button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded text-sm" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
+              <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm" onclick="window.startPrivateChat(${user.id}, '${escapeHTML(user.display_name)}')">Private Chat</button>
+            </div>`;
+        }
+      } else {
+        manageOwnProfile = `<a href="/profile" onclick="route('/profile'); return false;" class="text-indigo-400 hover:underline text-sm">Manage your profile</a>`;
+      }
+    }
 
-if (currUser.type === "loggedInUser") {
-	if (!isSelf) {
-	  if (user.friend_status === "adding") {
-		friendButtons = `
-		  <div class="text-white-600">This user has sent you a friend request</div>
-		  <div class="flex gap-2 mb-8">
-			<button class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded" onclick="window.acceptFriend(${JSON.stringify(user.id)})">Accept</button>
-			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
-			<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-            <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-   	  		</div>`;
-	  } else if (user.friend_status === "pending") {
-		friendButtons = `
-		  <div class="text-white-600">Awaiting response to your friend request.</div>
-		  <div class="flex gap-2 mb-8">
-			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${JSON.stringify(user.id)})">Cancel request</button>
-			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
-			<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-            <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-		  </div>`;
-	  } else if (user.friend_status === "accepted" || user.friend_status === "added") {
-		friendButtons = `
-		  <div class="text-white-600">You are friends.</div>
-		  <div class="flex gap-2 mb-8">
-			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${JSON.stringify(user.id)})">Unfriend</button>
-			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
-			<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-            <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-		  </div>`;
-	  } else if (user.friend_status === "blocked") {
-		friendButtons = `
-		  <div class="flex gap-2 mb-8">
-			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.cancelAction(${JSON.stringify(user.id)})">Unblock</button>
-		  </div>`;
-	  } else if (!user.friend_status) {
-		friendButtons = friendButtons = `
-		  <div class="flex gap-2 mb-8">
-			<button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded" onclick="window.addFriend(${JSON.stringify(user.id)})">Add Friend</button>
-			<button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded" onclick="window.blockUser(${JSON.stringify(user.id)})">Block</button>
-			<button class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded" onclick="window.inviteToPlay(${user.id})">Go to Play</button>
-            <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded ml-2" onclick="window.startPrivateChat(${user.id}, '${user.display_name}')">Private Chat</button>
-		  </div>`;
-	  }
-	} else {
-	  goProfile = `<a href="/profile" data-link class="text-white-400 hover:underline">Manage your profile</a>`;
-	}
+    // Render redesigned public profile
+    setContent(`
+      <div class="flex justify-between items-start p-4">
+        <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white text-sm">Home</a>
+        <a href="/users" onclick="route('/users'); return false;" class="text-gray-400 hover:text-white text-sm">Users</a>
+      </div>
+
+      <div class="max-w-4xl mx-auto space-y-8 px-4 pb-10">
+        <div class="bg-gray-800/70 backdrop-blur border border-gray-700 rounded-xl shadow-lg p-6">
+          <div class="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+            <img src="${user.avatar_url}" class="w-32 h-32 rounded-full object-cover border-4 border-gray-700" />
+            <div class="flex-1 space-y-2 text-center sm:text-left">
+              <h1 class="text-3xl font-bold flex items-center gap-2 justify-center sm:justify-start">
+                ${statusBubble}
+                <span>${escapeHTML(user.display_name)}</span>
+              </h1>
+              <div class="flex flex-col sm:flex-row sm:gap-4 text-sm text-gray-400">
+                <span>Joined: ${formatDate(user.created_at)}</span>
+                <span>Last Online: ${formatDate(user.last_online)}</span>
+              </div>
+              <div class="flex gap-4 justify-center sm:justify-start pt-2">
+                <div class="bg-gray-900/60 border border-gray-700 rounded px-4 py-2 text-sm">
+                  🏆 <span class="font-semibold">${user.wins}</span> Wins
+                </div>
+                <div class="bg-gray-900/60 border border-gray-700 rounded px-4 py-2 text-sm">
+                  💥 <span class="font-semibold">${user.losses}</span> Losses
+                </div>
+              </div>
+              ${manageOwnProfile ? `<div class="pt-2">${manageOwnProfile}</div>` : ''}
+            </div>
+          </div>
+          <div class="mt-6">
+            ${friendButtons}
+          </div>
+        </div>
+
+        <div class="bg-gray-800/70 backdrop-blur border border-gray-700 rounded-xl shadow-lg p-6">
+          ${historyBlock}
+        </div>
+      </div>
+    `);
+  } catch (err) {
+    setContent(`<div class="text-red-500 text-center mt-10">Failed to load profile. It may not exist.</div>`);
   }
-  
-    // ---- Render ----
-	setContent(`
-		<div class="flex justify-between items-start p-4">
-		  <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white">Home</a>
-		</div>
-	
-		<div class="max-w-3xl mx-auto p-6 bg-gray-800 rounded-xl shadow-xl">
-		  <div class="flex items-center gap-6 mb-6">
-			<img src="${user.avatar_url}" class="w-24 h-24 rounded-full border-4 border-indigo-500" />
-			<div>
-			  <h1 class="text-3xl font-bold">${escapeHTML(user.display_name)}</h1>
-			  <p class="text-sm text-gray-400">Status: ${user.account_status}</p>
-			  <p class="text-sm text-gray-400">Created: ${formatDate(user.created_at)}</p>
-			  <p class="text-sm text-gray-400">Last Online: ${formatDate(user.last_online)}</p>
-			</div>
-		  </div>
-	
-		  <div class="flex gap-4 mb-6">
-			<div class="bg-gray-700 px-4 py-2 rounded">🏆 Wins: <strong>${user.wins}</strong></div>
-			<div class="bg-gray-700 px-4 py-2 rounded">💥 Losses: <strong>${user.losses}</strong></div>
-		  </div>
-	
-		  ${friendButtons}
-		  ${goProfile}
-	
-		  <div class="mt-8">
-			${historyBlock}
-		  </div>
-		</div>
-	  `);
-	} catch (err) {
-	  setContent(`<div class="text-red-500 text-center">Failed to load profile. It may not exist. </div>`);
-	}
 }
 
 export function getUserInfo() {
@@ -961,46 +774,47 @@ export function renderLogin() {
 
 	const userId = localStorage.getItem('userId');
 	if (userId) {
-		alert("You are already logged in");
-		route('/profile');
+		// Already authenticated: go straight to home (no popup)
+		route('/home');
 		return;
 	}
 
 	setContent(`
-		<h1 class="text-xl font-bold">Login</h1>
-		<form id="login-form" class="flex flex-col gap-2 mt-4">
-			<input type="email" name="email" placeholder="Email" class="p-2 border text-black" />
-			<input type="password" name="password" placeholder="Password" class="p-2 border text-black" />
-			<button type="submit" class="bg-blue-600 text-white px-4 py-2">Submit</button>
-			<button type="button" onclick="route('/register')" class="m-2 bg-green-500 text-white px-4 py-2 rounded">Create Account</button>
-		</form>
-
-		<div class="flex items-center my-6">
-			<div class="flex-grow h-px bg-gray-500"></div>
-			<span class="px-2 text-gray-400 text-sm">OR</span>
-			<div class="flex-grow h-px bg-gray-500"></div>
-		</div>
-
-		<div class="mt-2 flex flex-col gap-2">
-			<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-400 rounded px-4 py-2 hover:bg-gray-100 text-black bg-white">
-			<img src="/assets/42_Logo.svg" alt="42" class="w-6 h-6" />
+<div class="max-w-md mx-auto mt-12 bg-gray-800/70 backdrop-blur rounded-xl shadow-lg border border-gray-700 p-6 text-white">
+	<h1 class="text-2xl font-bold mb-4 text-center">Login</h1>
+	<form id="login-form" class="flex flex-col gap-4">
+		<input type="email" name="email" placeholder="Email" class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none autofill:bg-gray-900" />
+		<input type="password" name="password" placeholder="Password" class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none autofill:bg-gray-900" />
+		<button type="submit" class="bg-indigo-600 hover:bg-indigo-500 transition-colors text-white font-medium px-4 py-2 rounded">Sign In</button>
+		<button type="button" onclick="route('/register')" class="bg-gray-700 hover:bg-gray-600 transition-colors text-white font-medium px-4 py-2 rounded text-sm">Create Account</button>
+	</form>
+	<div id="login-error" class="hidden mt-4 bg-red-900/70 border border-red-600 text-red-200 px-3 py-2 rounded text-sm"></div>
+	<div class="flex items-center my-6">
+		<div class="flex-grow h-px bg-gray-600"></div>
+		<span class="px-2 text-gray-400 text-xs tracking-wide">OR</span>
+		<div class="flex-grow h-px bg-gray-600"></div>
+	</div>
+	<div class="mt-2 flex flex-col gap-2">
+		<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-300 rounded px-4 py-2 bg-white text-gray-900 hover:bg-gray-100 transition-colors shadow">
+			<img src="/uploads/42_Logo.svg" alt="42" class="w-6 h-6" />
 			<span class="font-medium">Login with 42</span>
-			</button>
-		</div>
-
-	`);
+		</button>
+	</div>
+</div>`);
 
 	document.getElementById("oauth")?.addEventListener("click", () => {
 		window.location.href = "/api/auth/42";
 	  });
 
-	document.getElementById('login-form')!.addEventListener('submit', async (e) => {
+		const loginError = document.getElementById('login-error') as HTMLDivElement | null;
+		document.getElementById('login-form')!.addEventListener('submit', async (e) => {
 		e.preventDefault();
 		const formData = new FormData(e.target as HTMLFormElement);
 		const email = formData.get('email')?.toString().trim();
 		const password = formData.get('password')?.toString().trim();
 		if (!email || !password) {
-			return alert('Email and password are both required');
+			if (loginError) { loginError.textContent = 'Email and password are both required'; loginError.classList.remove('hidden'); }
+			return;
 		  }		  
 	  
 		try {
@@ -1015,11 +829,10 @@ export function renderLogin() {
 		  }
 
 		  if (!res.ok) {
-			const msg = await res.text();  
-			alert(msg || 'Invalid credentials');
-			//route('/login');
+			const msg = (await res.text()) || '';
+			if (loginError) { loginError.textContent = msg || 'Invalid credentials'; loginError.classList.remove('hidden'); }
 			return;
-			}
+		  }
 
 		const data = await res.json();
 
@@ -1037,61 +850,44 @@ export function renderLogin() {
 				body: JSON.stringify({ twofaMethod: 'email', email: data.email })
 			  });
 			}
+			const code = prompt(`Enter 2FA code in your ${data.method}`);
+			if (!code) { if (loginError) { loginError.textContent = '2FA code required'; loginError.classList.remove('hidden'); } return; }
+	  
+			const verifyRes = await fetch('/api/2fa/verify-code', {
+			  method: 'POST',
+			  headers: { 'Content-Type': 'application/json' },
+			  body: JSON.stringify({ twofaMethod: data.method, email: data.email, code })
+			});
 
-			setContent(`
-				<h1 class="text-xl font-bold">Two-Factor Authentication</h1>
-				<p class="mt-2">Enter the 2FA code from your ${data.method}</p>
-				<form id="twofa-form" class="flex flex-col gap-2 mt-4">
-				  <input type="text" name="code" placeholder="Enter code" class="p-2 border text-black" />
-				  <button type="submit" class="bg-blue-600 text-white px-4 py-2">Verify</button>
-				</form>
-			  `);
-			
-			document.getElementById("twofa-form")!.addEventListener("submit", async (e) => {
-			e.preventDefault();
+			if (!verifyRes.ok) {
+				const msg = await verifyRes.text();
+				if (loginError) { loginError.textContent = msg || '2FA verification failed'; loginError.classList.remove('hidden'); }
+				return;
+			}
 
-			try {
-				const formData = new FormData(e.target as HTMLFormElement);
-				const code = formData.get("code")?.toString().trim();
-				if (!code) return alert("2FA code required");
-		
-				const verifyRes = await fetch('/api/2fa/verify-code', {
+			const finalRes = await fetch('/api/final-login', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ twofaMethod: data.method, email: data.email, code })
-				});
-
-				if (!verifyRes.ok) {
-					const msg = await verifyRes.text();
-					console.log('verifyRes status:', verifyRes.status, 'message:', msg);
-					throw new Error(msg || '2FA verification failed');
-				}
-
-				const finalRes = await fetch('/api/final-login', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ email, password })
-				});
-				
-				if (!finalRes.ok) {
-					const msg = await finalRes.text();
-					throw new Error(msg || 'Something went wrong');
-				}else {
-					const finalData = await finalRes.json();
-					localStorage.setItem('userId', finalData.user_id);
-					localStorage.setItem('display_name', finalData.display_name);
-					startPresenceHeartbeat();
-					route('/profile');
-				} 
-			}catch (err) {
-			console.error(err);
-			alert(err instanceof Error ? err.message : 'Network error');
-			}
-		  } )}
+				body: JSON.stringify({ email, password })
+			  });
+			  
+			if (!finalRes.ok) {
+				const msg = await finalRes.text();
+				if (loginError) { loginError.textContent = msg || 'Login failed'; loginError.classList.remove('hidden'); }
+				return;
+			}else {
+				const finalData = await finalRes.json();
+				localStorage.setItem('userId', finalData.user_id);
+				localStorage.setItem('display_name', finalData.display_name);
+				startPresenceHeartbeat();
+				route('/profile');
+			  } 
+		  } 
 		} catch (err) {
-			console.error(err);
-			alert(err instanceof Error ? err.message : 'Network error');
-		}
+
+				console.error(err);
+				if (loginError) { loginError.textContent = err instanceof Error ? err.message : 'Network error'; loginError.classList.remove('hidden'); }
+			  }
 	  });	  
 }
 

@@ -5,19 +5,51 @@
     <title>Transcendence</title>
     <link href="/tailwind.css" rel="stylesheet" />
     <script>
-      // Prevent page reloads on links
       window.addEventListener("click", (e) => {
         const el = e.target instanceof Element ? e.target.closest('a[data-link]') : null;
         if (el) {
           e.preventDefault();
-          const href = el.getAttribute("href");
-          if (href && window.route) window.route(href);
+            const href = el.getAttribute("href");
+            if (href && window.route) window.route(href);
         }
-    });
+      });
     </script>
   </head>
   <body class="bg-gray-900 text-white">
-    <div id="app" class="p-4"></div>
+    <div class="min-h-screen flex flex-col">
+      <main id="app" class="p-4 flex-1 flex flex-col"></main>
+      <footer class="py-6 text-center text-xs text-gray-400 border-t border-gray-800 bg-gray-900/70">
+        <nav class="flex gap-4 justify-center flex-wrap">
+          <a href="/legal" data-link class="hover:text-white">Legal</a>
+          <a href="/privacy" data-link class="hover:text-white">Privacy</a>
+          <a href="/terms" data-link class="hover:text-white">Terms</a>
+          <a href="/cookies" data-link class="hover:text-white">Cookies</a>
+        </nav>
+        <div class="mt-2">© <span id="year"></span> ft_transcendence</div>
+      </footer>
+    </div>
+    <div id="modal-root" class="fixed inset-0 pointer-events-none"></div>
+    <script>
+      document.getElementById('year').textContent = new Date().getFullYear();
+    </script>
     <script type="module" src="/compiled/main.js"></script>
+    <script>
+		function maybeCenter()
+		{
+			const app = document.getElementById('app');
+			if (!app)
+				return;
+			// remove any previous state
+			app.classList.remove('justify-center');
+			// available height (excluding footer)
+			const available = app.clientHeight;
+			const contentHeight = Array.from(app.childNodes)
+				.reduce((h, n) => Math.max(h, (n instanceof HTMLElement ? n.offsetHeight : 0)), 0);
+			if (contentHeight < available * 0.7) {
+				app.classList.add('justify-center');
+			}
+		}
+		window.maybeCenter = maybeCenter;
+	</script>
   </body>
 </html>

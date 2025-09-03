@@ -940,4 +940,105 @@ fastify.get('/api/user/:id', async (req, reply) => {
     return { message: 'Your account has been permanently deleted' };
   });
 
+  try { await db.run(`ALTER TABLE users ADD COLUMN anonymized INTEGER DEFAULT 0`); } catch {}
+
+	fastify.post('/api/account/anonymize', {
+    preValidation: [fastify.authenticate]
+  }, async (req, reply) => {
+    if (!req.user || !req.user.id)
+      return reply.code(401).send({ error: 'Not authenticated' });
+
+    const userId = req.user.id;
+    const user = await db.get('SELECT * FROM users WHERE id = ?', [userId]);
+    if (!user) return reply.code(404).send({ error: 'Not found' });
+    if (user.anonymized) return reply.code(400).send({ error: 'Already anonymized' });
+
+    await db.run('BEGIN');
+    try {
+      const randomPwd = crypto.randomBytes(48).toString('hex');
+      const randomHash = await bcrypt.hash(randomPwd, 10);
+
+      // Use random (non‑derivable) email so it cannot be reversed
+      const placeholderEmail = crypto.randomBytes(16).toString('hex') + '@anon.local';
+      const newDisplay = `anon_${user.id}`;
+
+      // Update public messages alias (ignore if table absent)
+      try {
+        await db.run('UPDATE messages SET alias = ? WHERE alias = ?', [newDisplay, user.display_name]);
+      } catch (e) {
+        fastify.log.warn('Skipping messages alias update:', e.message);
+      }
+
+      await db.run(`
+        UPDATE users
+        SET email = ?, display_name = ?, avatar_url = '/default-avatar.png',
+            password_hash = ?, twofa_enabled = 0, twofa_method = NULL,
+            twofa_verified = 0, anonymized = 1,
+            oauth_provider = NULL, oauth_id = NULL,
+            account_status = 'offline', last_online = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+        [placeholderEmail, newDisplay, randomHash, userId]
+      );
+
+      // twofa_codes / app_codes tables use contact (email), NOT user_id
+      try {
+        await db.run('DELETE FROM twofa_codes WHERE contact = ?', [user.email.toLowerCase()]);
+      } catch (e) {
+        fastify.log.warn('Delete twofa_codes failed:', e.message);
+      }
+      try {
+        await db.run('DELETE FROM app_codes WHERE contact = ?', [user.email.toLowerCase()]);
+      } catch (e) {
+        fastify.log.warn('Delete app_codes failed:', e.message);
+      }
+
+      await db.run('COMMIT');
+      reply.clearCookie('token', { path: '/' });
+      return reply.send({ status: 'ok' });
+    } catch (e) {
+      await db.run('ROLLBACK').catch(()=>{});
+      fastify.log.error('Anonymize error:', e);
+      // Expose minimal message for debugging (adjust/remove in prod)
+      return reply.code(500).send({ error: 'Anonymize failed', detail: e.message });
+    }
+  });
+  fastify.get('/api/account/export', { preValidation: [fastify.authenticate] }, async (req, reply) => {
+    const userId = req.user.id;
+    try {
+      const user = await db.get(`SELECT id, email, display_name, created_at, last_online, anonymized, account_status, pvp_wins, pvp_losses FROM users WHERE id = ?`, [userId]);
+      if (!user) return reply.code(404).send({ error: 'User not found' });
+      const matches = await db.all(`SELECT id, mode, host_id, guest_id, host_score, guest_score, strftime('%Y-%m-%dT%H:%M:%SZ', finished_at) as finished_at FROM matches WHERE host_id = ? OR guest_id = ? ORDER BY finished_at DESC`, [userId, userId]);
+      let messages = [];
+      try {
+        // Public messages authored by current (by alias). Table columns: alias, message, timestamp
+        messages = await db.all(`SELECT id, alias, message, strftime('%Y-%m-%dT%H:%M:%SZ', timestamp) as timestamp FROM messages WHERE alias = ? ORDER BY id DESC`, [user.display_name]);
+      } catch {}
+      let privateMessages = [];
+      try {
+        const rows = await db.all(`SELECT id, sender_id, recipient_id, message, strftime('%Y-%m-%dT%H:%M:%SZ', timestamp) as timestamp FROM private_messages WHERE sender_id = ? OR recipient_id = ? ORDER BY id DESC`, [userId, userId]);
+        privateMessages = rows.map(r => ({ ...r, direction: r.sender_id === userId ? 'sent' : 'received' }));
+      } catch {}
+      const friends = await db.all(`SELECT user_id, friend_id, status FROM friends WHERE user_id = ? OR friend_id = ?`, [userId, userId]);
+      const exportBlob = { generated_at: new Date().toISOString(), user, matches, public_messages: messages, private_messages: privateMessages, friends };
+      reply.header('Content-Type', 'application/json');
+      reply.send(exportBlob);
+    } catch (e) {
+      fastify.log.error(e);
+      reply.code(500).send({ error: 'Export failed' });
+    }
+  });
+
+  fastify.patch('/api/account/update', { preValidation: [fastify.authenticate] }, async (req, reply) => {
+    const userId = req.user.id;
+    const { display_name, email } = req.body || {};
+    if (!display_name && !email) return reply.code(400).send({ error: 'Nothing to update' });
+    try {
+      if (display_name) await db.run(`UPDATE users SET display_name = ? WHERE id = ?`, [display_name, userId]);
+      if (email) await db.run(`UPDATE users SET email = ? WHERE id = ?`, [email, userId]);
+      return { ok: true };
+    } catch (err) {
+      fastify.log.error(err);
+      return reply.code(500).send({ error: 'Update failed' });
+    }
+  });
 };
