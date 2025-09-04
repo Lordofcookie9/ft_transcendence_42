@@ -1,3 +1,4 @@
+import { getUserInfo, logout } from '../users/userManagement.js';
 import { setContent, escapeHtml, sanitizeAlias } from '../utility.js';
 import { initPongGame } from "../pong/pong.js";
 import { updateChatBox, updateCounter } from './chat.js';
