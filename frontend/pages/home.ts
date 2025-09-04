@@ -1,5 +1,4 @@
-import { getUserInfo, logout } from '../users/userManagement.js';
-import { setContent, escapeHtml } from '../utility.js';
+import { setContent, escapeHtml, sanitizeAlias } from '../utility.js';
 import { initPongGame } from "../pong/pong.js";
 import { updateChatBox, updateCounter } from './chat.js';
 import { route } from '../router.js';
@@ -41,7 +40,11 @@ function handleLeftOnce(message?: string) {
 }
 
 export function renderHome() {
-  const alias = localStorage.getItem("alias") || "Guest";
+  const rawAlias = localStorage.getItem('alias');
+  const alias = sanitizeAlias(rawAlias);
+  if (alias !== rawAlias) {
+    try { localStorage.setItem('alias', alias); } catch {}
+  }
   let userHtml = '';
 
   const userInfo = getUserInfo();
@@ -223,7 +226,8 @@ export async function renderLocal1v1() {
 
   // Left = opponent alias (p1), Right = you (p2).
   const leftName  = localStorage.getItem("p1") || "P1";
-  const rightName = localStorage.getItem("p2") || (localStorage.getItem("display_name") || localStorage.getItem("alias") || "P2");
+  const rightName = localStorage.getItem("p2") || 
+    sanitizeAlias(localStorage.getItem("display_name") || localStorage.getItem("alias") || "P2");
   const s1 = localStorage.getItem("p1Score") || "0";
   const s2 = localStorage.getItem("p2Score") || "0";
 
@@ -284,7 +288,7 @@ export async function renderLocalVsAI() {
   try { localStorage.setItem('game.ai', 'left'); } catch {}
 
   // Left = AI, Right = you
-  const me = localStorage.getItem("display_name") || localStorage.getItem("alias") || "You";
+  const me = sanitizeAlias(localStorage.getItem("display_name") || localStorage.getItem("alias") || "You");
   const leftName  = localStorage.getItem("p1") || "AI";
   const rightName = localStorage.getItem("p2") || me;
 
@@ -339,7 +343,7 @@ export async function renderLocalVsAI() {
 }
 
 (window as any).startLocalVsAI = (window as any).startLocalVsAI || (() => {
-  const me = localStorage.getItem("display_name") || localStorage.getItem("alias") || "Player";
+  const me = sanitizeAlias(localStorage.getItem("display_name") || localStorage.getItem("alias") || "Player");
   localStorage.setItem("p1", "AI"); // left = AI
   localStorage.setItem("p2", me);   // right = you
   localStorage.setItem("p1Score", "0");
@@ -474,8 +478,8 @@ export async function renderPrivate1v1() {
     const p2Score = localStorage.getItem('p2Score') || '0';
     const el1 = document.getElementById('player1-info');
     const el2 = document.getElementById('player2-info');
-    if (el1) el1.innerHTML = `${escapeHtml(p1Name)}: ${escapeHtml(p1Score)}`;
-    if (el2) el2.innerHTML = `${escapeHtml(p2Name)}: ${escapeHtml(p2Score)}`;
+    if (el1) el1.textContent = `${p1Name}: ${p1Score}`;
+    if (el2) el2.textContent = `${p2Name}: ${p2Score}`;
   };
 
   function showEndOverlay(detail?: any) {
@@ -505,7 +509,7 @@ export async function renderPrivate1v1() {
   window.addEventListener('pong:score', onScore as any);
 
   ws.addEventListener('open', () => {
-    const myAlias = localStorage.getItem('display_name') || localStorage.getItem('alias') || 'Player';
+    const myAlias = sanitizeAlias(localStorage.getItem('display_name') || localStorage.getItem('alias') || 'Player');
     ws.send(JSON.stringify({ type: 'hello', alias: myAlias, role }));
   });
 
@@ -595,12 +599,12 @@ export async function renderPrivate1v1() {
           hostStartBtn.textContent = 'Start match';
         }
         const el = document.getElementById('player2-info');
-        if (el) el.innerHTML = `${escapeHtml(name)}: 0`;
+        if (el) el.textContent = `${name}: 0`;
       } else {
         localStorage.setItem('p1', name);
         lockedHostName = name;
         const el = document.getElementById('player1-info');
-        if (el) el.innerHTML = `${escapeHtml(name)}: 0`;
+        if (el) el.textContent = `${name}: 0`;
       }
       updateNameplates();
       try {

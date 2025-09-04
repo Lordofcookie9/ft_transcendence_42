@@ -1,5 +1,5 @@
 import { sendPrivateMessage } from '../pages/pages.js';
-import { uiAlert, uiConfirm, uiPrompt } from '../ui/modal.js';
+import { uiAlert, uiConfirm } from '../ui/modal.js';
 import { setContent, formatDbDateTime, startPresenceHeartbeat, showToast } from '../utility.js';
 import { route } from '../router.js';
 import { renderEntryPage } from '../pages/pages.js';
@@ -17,43 +17,93 @@ function escapeHTML(str: string) {
 		"=": "&#x3D;"
 	  }[s] || s)
 	);
-  }
+}
+
+function sanitizeDisplayName(raw: string)
+{
+  return String(raw || '').replace(/[\r\n\t]/g,' ').trim().replace(/\s+/g,' ').slice(0,32);
+}
+
+function validDisplayName(n: string)
+{
+  return /^[A-Za-z0-9_ ]{3,32}$/.test(n);
+}
+
+function sanitizeEmail(raw: string)
+{
+  return String(raw || '').trim().toLowerCase().slice(0,190);
+}
+
+function validEmail(e: string)
+{
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
+}
+
+function sanitizeAvatarURL(url: string)
+{
+	if (!url) 
+		return ('/default-avatar.png');
+	try {
+		const u = new URL(url, window.location.origin);
+		if (u.origin === window.location.origin && u.pathname.startsWith('/uploads/'))
+			return (u.pathname);
+		if (u.protocol === 'https:')
+			return (u.href.slice(0,300)); 
+	} catch {}
+	return ('/default-avatar.png');
+}
 
 export async function renderRegister() {
 	setContent(`
-	<div class="max-w-md mx-auto mt-10 bg-gray-800/70 backdrop-blur rounded-xl shadow-lg border border-gray-700 p-6 text-white">
-		<h1 class="text-2xl font-bold mb-4 text-center">Create Account</h1>
-		<form id="register-form" class="flex flex-col gap-4">
-			<input name="display_name" type="text" placeholder="Public name" required minlength="1" class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
-			<input name="email" type="email" placeholder="Email" required class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
-			<input name="password" type="password" placeholder="Password" required minlength="8" pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[@$!%*?&amp;]).{8,}$" title="Must contain at least 8 characters, one uppercase, one lowercase, one number, and one special character '@$!%*?'" class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
-			<div class="flex flex-col gap-2">
-				<div class="flex items-center gap-3 flex-wrap">
-					<input id="avatar" name="avatar" type="file" accept="image/*" class="hidden" />
-					<label for="avatar" class="cursor-pointer inline-flex items-center gap-2 bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm">
-						<span id="avatar-label-text">Choose avatar</span>
-					</label>
-					<span class="text-xs text-gray-400">(optional)</span>
-				</div>
-				<div id="avatar-filename" class="text-xs text-gray-400 line-clamp-1"></div>
-			</div>
-			<div class="space-y-2">
-				<label class="flex items-center gap-2 text-sm">
-					<input type="checkbox" id="enable-2fa" class="accent-indigo-500" /> Enable 2FA
-				</label>
-				<div id="2fa-options" class="hidden flex-col gap-2 border border-gray-600 rounded p-3 bg-gray-900/60 text-sm">
-					<label class="flex items-center gap-2"><input type="radio" name="twofa_method" value="email" class="accent-indigo-500"/> Email</label>
-					<label class="flex items-center gap-2"><input type="radio" name="twofa_method" value="app" class="accent-indigo-500"/> Authenticator App</label>
-				</div>
-			</div>
-			<button type="submit" class="mt-2 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white font-medium px-4 py-2 rounded">Register</button>
-		</form>
-	</div>`);
+    <div class="max-w-md mx-auto mt-10 bg-gray-800/70 backdrop-blur rounded-xl shadow-lg border border-gray-700 p-6 text-white">
+        <h1 class="text-2xl font-bold mb-4 text-center">Create Account</h1>
+        <form id="register-form" class="flex flex-col gap-4">
+            <input name="display_name" type="text" placeholder="Public name" required minlength="1" class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+            <input name="email" type="email" placeholder="Email" required class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+            <input name="password" type="password" placeholder="Password" required minlength="8" pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[@$!%*?&]).{8,}$" title="Must contain at least 8 characters, one uppercase, one lowercase, one number, and one special character '@$!%*?'" class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+            <div class="flex flex-col gap-2">
+                <div class="flex items-center gap-3 flex-wrap">
+                    <input id="avatar" name="avatar" type="file" accept="image/*" class="hidden" />
+                    <label for="avatar" class="cursor-pointer inline-flex items-center gap-2 bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm">
+                        <span id="avatar-label-text">Choose avatar</span>
+                    </label>
+                    <span class="text-xs text-gray-400">(optional)</span>
+                </div>
+                <div id="avatar-filename" class="text-xs text-gray-400 line-clamp-1"></div>
+            </div>
+            <div class="space-y-2">
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" id="enable-2fa" class="accent-indigo-500" /> Enable 2FA
+                </label>
+                <div id="2fa-options" class="hidden flex-col gap-2 border border-gray-600 rounded p-3 bg-gray-900/60 text-sm">
+                    <label class="flex items-center gap-2"><input type="radio" name="twofa_method" value="email" class="accent-indigo-500"/> Email</label>
+                    <label class="flex items-center gap-2"><input type="radio" name="twofa_method" value="app" class="accent-indigo-500"/> Authenticator App</label>
+                </div>
+            </div>
+            <button type="submit" class="mt-2 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white font-medium px-4 py-2 rounded">Register</button>
+        </form>
+
+        <div class="flex items-center my-6">
+            <div class="flex-grow h-px bg-gray-600"></div>
+            <span class="px-2 text-gray-400 text-xs tracking-wide">OR</span>
+            <div class="flex-grow h-px bg-gray-600"></div>
+        </div>
+        <div class="mt-2 flex flex-col gap-2">
+            <button id="oauth-register" class="flex items-center justify-center gap-3 border border-gray-300 rounded px-4 py-2 bg-white text-gray-900 hover:bg-gray-100 transition-colors shadow">
+                <img src="/uploads/42_Logo.svg" alt="42" class="w-6 h-6" />
+                <span class="font-medium">Register with 42</span>
+            </button>
+            <button type="button" onclick="route('/login')" class="bg-gray-700 hover:bg-gray-600 transition-colors text-white font-medium px-4 py-2 rounded text-sm">Already have an account? Login</button>
+        </div>
+    </div>`);
 	const form = document.getElementById('register-form') as HTMLFormElement | null;
 	const enable2FA = document.getElementById('enable-2fa') as HTMLInputElement | null;
 	const twoFAOptions = document.getElementById('2fa-options') as HTMLDivElement | null;
 	const avatarInput = document.getElementById('avatar') as HTMLInputElement | null;
 	const avatarFilename = document.getElementById('avatar-filename') as HTMLDivElement | null;
+	document.getElementById('oauth-register')?.addEventListener('click', () => {
+		window.location.href = '/api/auth/42';
+	});
 	avatarInput?.addEventListener('change', () => {
 		if (avatarInput.files && avatarInput.files[0]) {
 			avatarFilename && (avatarFilename.textContent = avatarInput.files[0].name);
@@ -82,7 +132,8 @@ export async function renderRegister() {
 	});
 }
 
-export function renderOauthSuccess() {
+export function renderOauthSuccess()
+{
 	setContent(`
 	  <div class="text-center mt-10">
 		<h2 class="text-xl font-bold text-green-600">✅ Account created!</h2>
@@ -90,65 +141,75 @@ export function renderOauthSuccess() {
 	  </div>
 	`);
 	setTimeout(() => route('/profile'), 2000);
-  }
-  
+}
 
+function setProfileEvents(user: User)
+{
+	document.getElementById('logout')?.addEventListener('click', logout);
+	// Edit mode toggling
+	const toggle = document.getElementById('edit-profile-toggle');
+	const cancel = document.getElementById('edit-profile-cancel');
+	const editPanel = document.getElementById('profile-edit');
+	const roPanel = document.getElementById('profile-readonly');
+	const nameHeading = document.getElementById('profile-display-name');
 
-function setProfileEvents(user: User) {
+	function enterEdit() {
+		editPanel?.classList.remove('hidden');
+		roPanel?.classList.add('hidden');
+		toggle?.classList.add('hidden');
+		cancel?.classList.remove('hidden');
+	}
 
-		document.getElementById('logout')?.addEventListener('click', logout);
-		// Edit mode toggling
-		const toggle = document.getElementById('edit-profile-toggle');
-		const cancel = document.getElementById('edit-profile-cancel');
-		const editPanel = document.getElementById('profile-edit');
-		const roPanel = document.getElementById('profile-readonly');
-		const nameHeading = document.getElementById('profile-display-name');
-		function enterEdit() {
-			editPanel?.classList.remove('hidden');
-			roPanel?.classList.add('hidden');
-			toggle?.classList.add('hidden');
-			cancel?.classList.remove('hidden');
-		}
-		function leaveEdit(updatedName?: string) {
-			editPanel?.classList.add('hidden');
-			roPanel?.classList.remove('hidden');
-			toggle?.classList.remove('hidden');
-			cancel?.classList.add('hidden');
-			if (updatedName && nameHeading) nameHeading.textContent = updatedName;
-		}
-		toggle?.addEventListener('click', () => enterEdit());
-		cancel?.addEventListener('click', () => leaveEdit());
+	function leaveEdit(updatedName?: string) {
+		editPanel?.classList.add('hidden');
+		roPanel?.classList.remove('hidden');
+		toggle?.classList.remove('hidden');
+		cancel?.classList.add('hidden');
+		if (updatedName && nameHeading)
+			nameHeading.textContent = updatedName;
+	}
+
+	toggle?.addEventListener('click', enterEdit);
+	cancel?.addEventListener('click', () => leaveEdit());
+
 	document.getElementById('delete-profile-btn')?.addEventListener('click', async () => {
-		  const really = await uiConfirm('Are you sure you want to delete your profile? This cannot be undone.','Delete Account');
-		  if (!really) return;
-  
-		  const res = await fetch('/api/delete-account', {
-		  method: 'DELETE',
-		  credentials: 'include',
-		  });
-  
-		  if (res.ok) {
-		    try {
-		      if (navigator.sendBeacon) {
-		        const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
-		        navigator.sendBeacon('/api/presence/offline', blob);
-		      } else {
-		        await fetch('/api/presence/offline', { method: 'POST', credentials: 'include' });
-		      }
-		    } catch {}
-		    localStorage.clear();
-		    route('/home');
-		    setTimeout(() => showToast('Account deleted', 'info'), 40);
-		  } else {
-		    const err = await res.text();
-		    showToast('Delete failed: ' + err, 'error');
-		  }
-	  });
+		const really = await uiConfirm('Are you sure you want to delete your profile? This cannot be undone.','Delete Account');
+		if (!really)
+			return;
+		const res = await fetch('/api/delete-account', {
+			method: 'DELETE',
+			credentials: 'include',
+		});
+
+		if (res.ok)
+		{
+			try {
+				if (navigator.sendBeacon) {
+					const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
+					navigator.sendBeacon('/api/presence/offline', blob);
+				} else {
+					await fetch('/api/presence/offline', { method: 'POST', credentials: 'include' });
+				}
+			} catch {}
+			localStorage.clear();
+			route('/home');
+			setTimeout(() => showToast('Account deleted', 'info'), 40);
+		}
+		else
+		{
+			const err = await res.text();
+			showToast('Delete failed: ' + err, 'error');
+		}
+	});
 
 	document.getElementById('anonymize-account-btn')?.addEventListener('click', async () => {
-    if (user.anonymized) { showToast('Already anonymized', 'info'); return; }
-    const ok = await uiConfirm(
-`IRREVERSIBLE ACTION
+		if (user.anonymized)
+		{
+			showToast('Already anonymized', 'info');
+			return;
+		}
+		const ok = await uiConfirm(
+			`IRREVERSIBLE ACTION
 
 Your display name, email, avatar, password and OAuth links will be destroyed.
 You WILL lose access and cannot log back in (even with 42 OAuth).
@@ -156,82 +217,140 @@ You WILL lose access and cannot log back in (even with 42 OAuth).
 Your stats and past matches stay, but no recovery is possible.
 
 Proceed?`,
-'Erase & Anonymize'
-    );
-    if (!ok) return;
-    try {
-        const res = await fetch('/api/account/anonymize', { method: 'POST', credentials: 'include' });
-        if (res.ok) {
-            localStorage.clear();
-            route('/home');
-            setTimeout(()=>showToast('Account anonymized (access lost)', 'info'), 40);
-        } else {
-            showToast('Failed: ' + (await res.text()), 'error');
-        }
-    } catch (e) {
-        console.error(e);
-        showToast('Network error', 'error');
-    }
-});
+			'Erase & Anonymize'
+		);
+		if (!ok)
+			return;
+		try {
+			const res = await fetch('/api/account/anonymize', { method: 'POST', credentials: 'include' });
+			if (res.ok)
+			{
+				localStorage.clear();
+				route('/home');
+				setTimeout(()=>showToast('Account anonymized (access lost)', 'info'), 40);
+			}
+			else 
+				showToast('Failed: ' + (await res.text()), 'error');
+    	} catch (e) {
+			console.error(e);
+			showToast('Network error', 'error');
+    	}
+	});
   
 	// Unified profile info form (name + email)
 	const profileInfoForm = document.getElementById('profile-info-form') as HTMLFormElement | null;
-	// Inject an inline error container if not present
-	if (profileInfoForm && !profileInfoForm.querySelector('#profile-info-error')) {
+	if (profileInfoForm && !profileInfoForm.querySelector('#profile-info-error'))
+	{
 		const div = document.createElement('div');
 		div.id = 'profile-info-error';
 		div.className = 'hidden mt-2 bg-red-900/70 border border-red-600 text-red-200 px-3 py-2 rounded text-sm';
 		profileInfoForm.appendChild(div);
 	}
+
 	profileInfoForm?.addEventListener('submit', async (e) => {
 		e.preventDefault();
 		const form = e.target as HTMLFormElement;
-		const newName = (form.display_name?.value || '').trim();
-		const newEmail = (form.email?.value || '').trim();
+		let newName = (form.display_name?.value || '').trim();
+		let newEmail = (form.email?.value || '').trim();
 		const errorBox = form.querySelector('#profile-info-error') as HTMLDivElement | null;
-		if (errorBox) { errorBox.classList.add('hidden'); errorBox.textContent = ''; }
+		if (errorBox)
+		{
+			errorBox.classList.add('hidden');
+			errorBox.textContent = '';
+		}
+
+		if (newName)
+		{
+			newName = sanitizeDisplayName(newName);
+			if (!validDisplayName(newName))
+			{
+				if (errorBox)
+				{
+					errorBox.textContent = 'Display name invalid (3-32: letters, digits, underscore, space).';
+					errorBox.classList.remove('hidden');
+				}
+				return ;
+			}
+		}
+
+		if (newEmail)
+		{
+			newEmail = sanitizeEmail(newEmail);
+			if (!validEmail(newEmail))
+			{
+				if (errorBox)
+				{
+					errorBox.textContent = 'Invalid email format.';
+					errorBox.classList.remove('hidden');
+				}
+				return ;
+			}
+		}
+
 		const origName = localStorage.getItem('display_name')?.trim() || user.display_name;
 		const origEmail = user.email;
 		const tasks: Promise<Response>[] = [];
-		if (newName && newName !== origName) {
-			tasks.push(fetch('/api/name', { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ display_name: newName }) }));
+
+		if (newName && newName !== origName)
+		{
+			tasks.push(fetch('/api/name', {
+				method: 'PATCH',
+				credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ display_name: newName })
+			}));
+
 		}
-		if (newEmail && newEmail !== origEmail) {
-			tasks.push(fetch('/api/email', { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: newEmail }) }));
+		if (newEmail && newEmail !== origEmail)
+		{
+			tasks.push(fetch('/api/email', {
+				method: 'PATCH',
+				credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email: newEmail }) }));
 		}
-		if (!tasks.length) {
+		if (!tasks.length)
+		{
 			alert('Nothing changed.');
 			return;
 		}
 		try {
 			const results = await Promise.all(tasks);
 			const failed = results.find(r => !r.ok);
-			if (failed) {
-				const msg = await failed.text();
-				if (errorBox) {
-					let text = msg || 'Update failed';
-					// Backend sends JSON for duplicate name; attempt to parse
-					try {
-						const j = JSON.parse(msg);
-						if (j?.error) text = j.error;
-					} catch {}
-					if (/display name already in use/i.test(text) || /already exists/i.test(text)) {
+			if (failed)
+			{
+				let msg = await failed.text();
+				try {
+					const j = JSON.parse(msg);
+					if (j?.error)
+						msg = j.error;
+				} catch {}
+				if (errorBox)
+				{
+					if (/already exists|already in use|duplicate/i.test(msg))
 						errorBox.textContent = 'That username is already used.';
-					} else {
-						errorBox.textContent = text;
-					}
+					else
+						errorBox.textContent = msg || 'Update failed';
 					errorBox.classList.remove('hidden');
-				} else {
-					alert('Update failed: ' + msg);
 				}
+				else
+					alert('Update failed: ' + msg);
 				return;
 			}
-			if (newName && newName !== origName) localStorage.setItem('display_name', newName);
+			if (newName && newName !== origName)
+				localStorage.setItem('display_name', newName);
 			showToast('Profile updated.', 'success');
+			leaveEdit(newName || origName);
 			renderProfile();
 		} catch (err) {
 			console.error(err);
-			if (errorBox) { errorBox.textContent = 'Network error.'; errorBox.classList.remove('hidden'); } else { alert('Network error.'); }
+			if (errorBox)
+			{
+				errorBox.textContent = 'Network error.';
+				errorBox.classList.remove('hidden');
+			}
+			else
+				alert('Network error.');
 		}
 	});
 
@@ -265,46 +384,64 @@ Proceed?`,
 		  console.error(err);
 		  alert("Something went wrong while updating your profile.");
 		}
-	  });
-	  
-	// Avatar preview
-	const avatarInput = document.querySelector<HTMLInputElement>('input[name="avatar"]');
-	avatarInput?.addEventListener('change', () => {
-	  const file = avatarInput.files?.[0];
-	  if (file) {
-		const img = document.getElementById('avatar-preview') as HTMLImageElement;
-		img.src = URL.createObjectURL(file);
-	  }
-	});
-  
-	// Avatar update
-	const avatarForm = document.getElementById('avatar-form') as HTMLFormElement;
-	avatarForm?.addEventListener('submit', async (e) => {
-	  e.preventDefault();
-	  const formData = new FormData(avatarForm);
-	  const file = formData.get('avatar') as File;
-  
-	  if (!file || file.size === 0) {
-		alert('Nothing changed.');
-		return;
-	  }
-  
-	  const res = await fetch('/api/avatar', {
-		method: 'PATCH',
-		credentials: 'include',
-		body: formData
-	  });
-  
-	  if (res.ok) {
-		alert('Avatar updated.');
-		renderProfile();
-	  } else {
-		const msg = await res.text();
-		alert('Error: ' + msg);
-	  }
 	});
 
-	// (Email form removed; handled by unified form)
+	const avatarForm          = document.getElementById('avatar-form') as HTMLFormElement | null;
+	const avatarUpload        = document.getElementById('avatar-upload') as HTMLInputElement | null;
+	const avatarEditPreview   = document.getElementById('avatar-edit-preview') as HTMLImageElement | null;
+	const avatarReadonly      = document.getElementById('avatar-preview') as HTMLImageElement | null;
+	const avatarCancelBtn     = document.getElementById('avatar-cancel');
+	const avatarFileNameLabel = document.getElementById('avatar-file-name');
+
+	avatarUpload?.addEventListener('change', () => {
+		const file = avatarUpload.files?.[0];
+		if (file)
+		{
+			const url = URL.createObjectURL(file);
+			if (avatarEditPreview)
+				avatarEditPreview.src = url;
+			if (avatarFileNameLabel)
+				avatarFileNameLabel.textContent = file.name;
+		}
+		else
+		{
+			if (avatarEditPreview && avatarReadonly)
+				avatarEditPreview.src = avatarReadonly.src;
+			if (avatarFileNameLabel)
+				avatarFileNameLabel.textContent = '';
+		}
+	});
+
+	avatarCancelBtn?.addEventListener('click', () => {
+		if (avatarUpload)
+			avatarUpload.value = '';
+		if (avatarReadonly && avatarEditPreview)
+			avatarEditPreview.src = avatarReadonly.src;
+		if (avatarFileNameLabel)
+			avatarFileNameLabel.textContent = '';
+	});
+
+	avatarForm?.addEventListener('submit', async (e) => {
+		e.preventDefault();
+		if (!avatarUpload?.files?.[0])
+		{
+			alert('No new avatar selected.');
+			return;
+		}
+		const fd = new FormData();
+		fd.append('avatar', avatarUpload.files[0]);
+		const res = await fetch('/api/avatar', {
+			method: 'PATCH',
+			credentials: 'include',
+			body: fd
+		});
+		if (res.ok)
+		{
+			showToast('Avatar updated', 'success');
+			renderProfile();
+		} else
+			alert('Error: ' + (await res.text()));
+	});
 	
 	// 2fa update
 	const enable2FA = document.getElementById('enable-2fa') as HTMLInputElement;
@@ -408,76 +545,88 @@ Proceed?`,
 
 }
 
-// New profile HTML with toggleable edit panel
 function renderProfileHTML(user: User): string {
 	const joined = new Date(user.created_at).toLocaleString();
 	const lastOnline = new Date(user.last_online).toLocaleString();
+	const safeName = escapeHTML(user.display_name);
+	const safeEmail = escapeHTML(user.email);
+	const safeAvatar = sanitizeAvatarURL(user.avatar_url);
 	const statusBubble = `<span class="inline-block w-3 h-3 rounded-full ${user.account_status === 'online' ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}"></span>`;
 	return `
 	<div class="max-w-3xl mx-auto mt-10 text-white">
 		<div class="flex justify-between items-start mb-4">
-			<button id="edit-profile-toggle" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded text-sm">Edit</button>
-			<button id="edit-profile-cancel" class="hidden bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm">Cancel</button>
+		<button id="edit-profile-toggle" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded text-sm">Edit</button>
+		<button id="edit-profile-cancel" class="hidden bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm">Cancel</button>
 		</div>
 		<div id="profile-readonly" class="space-y-6">
-			<div class="bg-gray-800/70 backdrop-blur border border-gray-700 rounded-xl p-6 shadow-lg">
-				<div class="flex flex-col sm:flex-row items-center sm:items-start gap-6">
-					<img id="avatar-preview" src="${user.avatar_url}" class="w-32 h-32 rounded-full object-cover border-4 border-gray-700" />
-					<div class="flex-1 space-y-2 text-center sm:text-left">
-						<h1 id="profile-display-name" class="text-3xl font-bold flex items-center gap-2 justify-center sm:justify-start">${statusBubble}<span>${user.display_name}</span></h1>
-						<div class="text-sm text-gray-400 flex flex-col sm:flex-row sm:gap-4">
-							<span>Joined: ${joined}</span>
-							<span>Last Online: ${lastOnline}</span>
-						</div>
-					</div>
-				</div>
-				<div class="flex flex-wrap gap-2 justify-center sm:justify-end pt-4">
-					<button id="anonymize-account-btn" class="bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white px-3 py-1 rounded text-sm" ${user.anonymized ? 'disabled title="Already anonymized"' : ''}>${user.anonymized ? 'Account Anonymized' : 'Anonymize Account'}</button>
-					<button id="delete-profile-btn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">Delete Account</button>
-					<button id="logout" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded text-sm">Logout</button>
+		<div class="bg-gray-800/70 backdrop-blur border border-gray-700 rounded-xl p-6 shadow-lg">
+			<div class="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+			<img id="avatar-preview" src="${safeAvatar}" alt="Current avatar" class="w-32 h-32 rounded-full object-cover border-4 border-gray-700" />
+			<div class="flex-1 space-y-2 text-center sm:text-left">
+				<h1 id="profile-display-name" class="text-3xl font-bold flex items-center gap-2 justify-center sm:justify-start">${statusBubble}<span>${safeName}</span></h1>
+				<div class="text-sm text-gray-400 flex flex-col sm:flex-row sm:gap-4">
+				<span>Joined: ${escapeHTML(joined)}</span>
+				<span>Last Online: ${escapeHTML(lastOnline)}</span>
 				</div>
 			</div>
-			<div class="flex flex-wrap gap-4 justify-center">
-				<button onclick="route('/users')" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded">Find Friends</button>
-				<button onclick="route('/home')" class="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded">Play Game</button>
-				<a href="/profile/${user.id}" onclick="route('/profile/${user.id}'); return false;" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded">Public Page</a>
+			</div>
+			<div class="flex flex-wrap gap-2 justify-center sm:justify-end pt-4">
+			<button id="anonymize-account-btn" class="bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white px-3 py-1 rounded text-sm" ${user.anonymized ? 'disabled title="Already anonymized"' : ''}>${user.anonymized ? 'Account Anonymized' : 'Anonymize Account'}</button>
+			<button id="delete-profile-btn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">Delete Account</button>
+			<button id="logout" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded text-sm">Logout</button>
 			</div>
 		</div>
+		<div class="flex flex-wrap gap-4 justify-center">
+			<button type="button" onclick="route('/users')" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded">Find Friends</button>
+			<button type="button" onclick="route('/home')" class="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded">Play Game</button>
+			<a href="/profile/${user.id}" onclick="route('/profile/${user.id}'); return false;" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded">Public Page</a>
+		</div>
+		</div>
+
 		<div id="profile-edit" class="hidden space-y-8 bg-gray-800/70 backdrop-blur border border-gray-700 rounded-xl p-6 shadow-lg">
-			<form id="avatar-form" class="flex items-center justify-center gap-3 text-sm flex-wrap">
+		<form id="avatar-form" class="space-y-4 text-sm">
+			<div class="flex flex-col items-center gap-4">
+			<img id="avatar-edit-preview" src="${safeAvatar}" alt="Avatar preview while editing" class="w-32 h-32 rounded-full object-cover border-4 border-gray-700" />
+			<div class="flex flex-wrap items-center gap-3">
 				<input id="avatar-upload" name="avatar" type="file" accept="image/*" class="hidden" />
-				<label for="avatar-upload" class="cursor-pointer bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-white">Change Avatar</label>
+				<label for="avatar-upload" class="cursor-pointer bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-white">Choose New Avatar</label>
 				<button type="submit" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded">Save Avatar</button>
-			</form>
-			<div class="flex flex-wrap gap-2 text-xs">
-				<button id="gdpr-export" type="button" class="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-white">Download My Data (JSON)</button>
+				<button type="button" id="avatar-cancel" class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded">Reset</button>
 			</div>
-			<div id="twofa-verification-container" class="text-sm"></div>
-			<form id="profile-info-form" class="space-y-3">
-				<div class="flex gap-2 flex-wrap items-center">
-					<input type="text" name="display_name" value="${user.display_name}" placeholder="Display name" class="flex-grow p-2 rounded bg-gray-900 text-white text-sm border border-gray-600 focus:border-indigo-500 focus:outline-none" />
-					<input type="email" name="email" value="${user.email}" placeholder="Email" class="flex-grow p-2 rounded bg-gray-900 text-white text-sm border border-gray-600 focus:border-indigo-500 focus:outline-none" />
-					<button type="submit" class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded text-sm">Save Changes</button>
-				</div>
-			</form>
-			<form id="password-form" class="flex gap-2 flex-wrap items-center">
-				<input type="password" name="password" placeholder="New password" minlength="8" class="flex-grow p-2 rounded bg-gray-900 text-white text-sm border border-gray-600 focus:border-indigo-500 focus:outline-none" />
-				<button type="submit" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-2 rounded text-sm">Save Password</button>
-			</form>
-			<div class="border border-gray-700 rounded p-4 space-y-2 bg-gray-900/60">
-				<label class="flex items-center gap-2 text-sm">
-					<input type="checkbox" id="enable-2fa" ${user.twofa_enabled ? 'checked' : ''}/> <span>Enable 2FA</span>
-					${user.twofa_verified ? '<span class="text-green-500">Verified</span>' : ''}
-				</label>
-				<div id="2fa-options" class="${user.twofa_enabled ? '' : 'hidden'} flex flex-wrap items-center gap-4 text-sm">
-					<label><input type="radio" name="twofa_method" value="email" ${user.twofa_method === 'email' ? 'checked' : ''}/> Email</label>
-					<label><input type="radio" name="twofa_method" value="app" ${user.twofa_method === 'app' ? 'checked' : ''}/> Auth App</label>
-					<button id="save-2fa" type="button" class="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-white text-sm">Save 2FA</button>
-				</div>
+			<div id="avatar-file-name" class="text-xs text-gray-400"></div>
+			<div class="text-xs text-gray-500">Not saved until you click "Save Avatar".</div>
 			</div>
+		</form>
+		<div class="flex flex-wrap gap-2 text-xs">
+			<button id="gdpr-export" type="button" class="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-white">Download My Data (JSON)</button>
+		</div>
+		<div id="twofa-verification-container" class="text-sm"></div>
+		<form id="profile-info-form" class="space-y-3">
+			<div class="flex gap-2 flex-wrap items-center">
+			<input type="text" name="display_name" value="${safeName}" placeholder="Display name" class="flex-grow p-2 rounded bg-gray-900 text-white text-sm border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+			<input type="email" name="email" value="${safeEmail}" placeholder="Email" class="flex-grow p-2 rounded bg-gray-900 text-white text-sm border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+			<button type="submit" class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded text-sm">Save Changes</button>
+			</div>
+		</form>
+		<form id="password-form" class="flex gap-2 flex-wrap items-center">
+			<input type="password" name="password" placeholder="New password" minlength="8" class="flex-grow p-2 rounded bg-gray-900 text-white text-sm border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+			<button type="submit" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-2 rounded text-sm">Save Password</button>
+		</form>
+		<div class="border border-gray-700 rounded p-4 space-y-2 bg-gray-900/60">
+			<label class="flex items-center gap-2 text-sm">
+			<input type="checkbox" id="enable-2fa" ${user.twofa_enabled ? 'checked' : ''}/> <span>Enable 2FA</span>
+			${user.twofa_verified ? '<span class="text-green-500">Verified</span>' : ''}
+			</label>
+			<div id="2fa-options" class="${user.twofa_enabled ? '' : 'hidden'} flex flex-wrap items-center gap-4 text-sm">
+			<label><input type="radio" name="twofa_method" value="email" ${user.twofa_method === 'email' ? 'checked' : ''}/> Email</label>
+			<label><input type="radio" name="twofa_method" value="app" ${user.twofa_method === 'app' ? 'checked' : ''}/> Auth App</label>
+			<button id="save-2fa" type="button" class="bg-blue-600 hover:bg-blue-500 px-3 py-1 rounded text-white text-sm">Save 2FA</button>
+			</div>
+		</div>
 		</div>
 	</div>`;
 }
+
 export type User = {
 	id: number;
 	email: string;
@@ -557,12 +706,13 @@ export async function renderUserList() {
 
 	const currUser = getUserInfo();
 
-	try {const res = await fetch('/api/users');
+	try {
+		const res = await fetch('/api/users');
 
 		const users = await res.json();
 		if (!users.length) {
 			app.innerHTML = `<div class="text-center text-xl">No registered users yet, but the first one :) </div>`;
-			return;
+			return ;
 		}
 		
 		app.innerHTML = `
@@ -594,12 +744,12 @@ export async function renderUserList() {
 							<li class="bg-gray-800 p-4 rounded shadow flex items-center space-x-4">
 								<img src="${u.avatar_url}" class="w-24 h-24 rounded-full border-4 border-grey-400 object-cover" />
 								<div class="flex-1">
-									<div class="font-semibold">${u.display_name}</div>
-									<div class="text-sm text-gray-400">Status: ${u.account_status}</div>
+									<div class="font-semibold">${escapeHTML(u.display_name)}</div>
+									<div class="text-sm text-gray-400">Status: ${escapeHTML(u.account_status)}</div>
 									<div class="text-sm text-gray-400">Joined: ${new Date(u.created_at).toLocaleDateString()}</div>
 									<div class="text-sm text-gray-400">Last online: ${new Date(u.last_online).toLocaleDateString()}</div>
 									<div class="text-sm">🏆 ${u.wins} Wins / 💥 ${u.losses} Losses</div>
-									${friendStatusHTML}
+									${escapeHTML(u.friendStatusHTML)}
 								</div>
 								<a href="/profile/${u.id}" data-link class="text-blue-400 hover:underline">View Profile</a>
 							</li>`;

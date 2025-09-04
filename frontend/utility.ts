@@ -11,6 +11,15 @@ export function escapeHtml(str: string) {
 						.replace(/'/g, "&#039;");
 }
 
+export function sanitizeAlias(raw: any): string {
+	let s = String(raw ?? '').trim();
+	s = s.replace(/[\r\n\t]/g, ' ');
+	s = s.replace(/\s+/g, ' ');
+	s = s.replace(/[^A-Za-z0-9 _-]/g, '');
+	s = s.slice(0, 24);
+	return s || 'Guest';
+}
+
 export function formatDbDateTime(ts: string): string {
   if (!ts) return '';
   const iso = ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z';

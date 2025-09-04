@@ -1,222 +1,282 @@
-module.exports = async function registerUsers(fastify) {
+module.exports = async function registerUsers(fastify)
+{
 	const fs = require('fs');
 	const path = require('path');
-const bcrypt = require('bcrypt');
-const fastifyJwt = require('@fastify/jwt');
-const fastifyCookie = require('@fastify/cookie');
-const fastifyMulter = require('fastify-multer');
-const crypto = require('crypto');
-const fastifyCors = require('@fastify/cors');
-const nodemailer = require('nodemailer');
-const speakeasy = require('speakeasy');
-const QRCode = require('qrcode');
-const fastifyWebsocket = require('@fastify/websocket');
-const axios = require('axios');
-const rateLimit = require('@fastify/rate-limit');
-const fastifyHelmet = require('@fastify/helmet');
-const fastifyCSRF = require('@fastify/csrf-protection');
+	const bcrypt = require('bcrypt');
+	const fastifyJwt = require('@fastify/jwt');
+	const fastifyCookie = require('@fastify/cookie');
+	const fastifyMulter = require('fastify-multer');
+	const crypto = require('crypto');
+	const fastifyCors = require('@fastify/cors');
+	const nodemailer = require('nodemailer');
+	const speakeasy = require('speakeasy');
+	const QRCode = require('qrcode');
+	const fastifyWebsocket = require('@fastify/websocket');
+	const axios = require('axios');
+	const rateLimit = require('@fastify/rate-limit');
+	const fastifyHelmet = require('@fastify/helmet');
+	const fastifyCSRF = require('@fastify/csrf-protection');
 
+	const db = fastify.db;
+	const MAIL_APP = process.env.MAIL_APP;
+	const MAIL_APPPW = process.env.MAIL_APPPW;
+	if (!MAIL_APP || !MAIL_APPPW)
+		fastify.log.warn('MAIL_APP or MAIL_APPPW not set — email 2FA will fail until configured');
 
-const db = fastify.db;
-const MAIL_APP = process.env.MAIL_APP;
-const MAIL_APPPW = process.env.MAIL_APPPW;
-if (!MAIL_APP || !MAIL_APPPW) {
-  fastify.log.warn('MAIL_APP or MAIL_APPPW not set — email 2FA will fail until configured');
-}
+	function sanitizeDisplayName(raw = '')
+	{
+		let s = String(raw).replace(/[\r\n\t]/g,' ').trim();
+		s = s.replace(/\s+/g,' ').slice(0,32);
+		return s;
+	}
+
+	function validDisplayName(s)
+	{
+    	return /^[A-Za-z0-9_ ]{3,32}$/.test(s);
+	}
+
+	function sanitizeEmail(raw = '')
+	{
+		return String(raw).trim().toLowerCase().slice(0,190);
+	}
+
+	function validEmail(e)
+	{
+		return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
+	
+	}
+
+	function sanitizeAvatar(raw = '', allowRemote = false)
+	{
+		if (!raw)
+			return '/default-avatar.png';
+		if (raw.startsWith('/uploads/'))
+			return raw.slice(0,200);
+		if (allowRemote)
+		{
+			try {
+				const u = new URL(raw);
+				if (u.protocol === 'https:')
+				{
+					u.hash = '';
+					return u.href.slice(0, 300);
+				}
+			} catch {}
+		}
+		return '/default-avatar.png';
+	}
 
 	// --- Plugins ---
 	fastify.register(fastifyCookie);
 	fastify.register(fastifyMulter.contentParser);
-  fastify.register(fastifyCors, {
-	origin: 'https://localhost:3000',
-	credentials: true
- 	 });
+	fastify.register(fastifyCors, {
+		origin: 'https://localhost:3000',
+		credentials: true
+	});
 
-  fastify.register(fastifyHelmet, {
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "https:"],
-        imgSrc: ["'self'", "data:"],
-        connectSrc: ["'self'"],
-        fontSrc: ["'self'"],
-        objectSrc: ["'none'"],
-        frameAncestors: ["'none'"]
-      }
-    }
-  });
+	fastify.register(fastifyHelmet, {
+		contentSecurityPolicy: {
+			directives: {
+				defaultSrc: ["'self'"],
+				scriptSrc: ["'self'"],
+				styleSrc: ["'self'", "https:"],
+				imgSrc: ["'self'", "data:"],
+				connectSrc: ["'self'"],
+				fontSrc: ["'self'"],
+				objectSrc: ["'none'"],
+				frameAncestors: ["'none'"]
+			}
+		}
+	});
     
-  fastify.register(fastifyCSRF);
+	fastify.register(fastifyCSRF);
   
 	fastify.register(fastifyJwt, {
-	  secret: process.env.JWT_SECRET,
-	  cookie: { cookieName: 'token', signed: false },
+		secret: process.env.JWT_SECRET,
+		cookie:
+		{
+			cookieName: 'token',
+			signed: false
+		},
 	});
 
 	fastify.decorate('authenticate', async (request, reply) => {
 		try {
-		  await request.jwtVerify();
+			await request.jwtVerify();
 		} catch (err) {
-		  return reply.code(401).send({ error: 'Invalid or expired token' });
+			return reply.code(401).send({ error: 'Invalid or expired token' });
 		}
-		});
+	});
 	  
-		const multer = fastifyMulter({ dest: path.join(__dirname, 'uploads/') });
-		const upload = multer.single('avatar');
+	const multer = fastifyMulter({ dest: path.join(__dirname, 'uploads/') });
+	const upload = multer.single('avatar');
     
+	fastify.get('/api/auth/42', async (req, reply) => {
+		const clientId = process.env.ECOLE_CLIENT_ID;      
+		const redirectUri = process.env.ECOLE_REDIRECT_URI;
 
-    fastify.get('/api/auth/42', async (req, reply) => {
-      const clientId = process.env.ECOLE_CLIENT_ID;      
-      const redirectUri = process.env.ECOLE_REDIRECT_URI;
+		const authUrl = `https://api.intra.42.fr/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=public`;
 
-      const authUrl = `https://api.intra.42.fr/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=public`;
-
-      reply.redirect(authUrl);
-    });
+		reply.redirect(authUrl);
+	});
 
     fastify.get('/api/auth/42/callback', async (req, reply) => {
-      const { code } = req.query;
-      if (!code) return reply.code(400).send('Missing code');
+		const { code } = req.query;
+		if (!code)
+			return reply.code(400).send('Missing code');
+
+		try {
+			const tokenRes = await axios.post(
+				'https://api.intra.42.fr/oauth/token',
+				new URLSearchParams({
+					grant_type: 'authorization_code',
+					client_id: process.env.ECOLE_CLIENT_ID,
+					client_secret: process.env.ECOLE_CLIENT_SECRET,
+					code,
+					redirect_uri: process.env.ECOLE_REDIRECT_URI
+				}),
+				{ headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+			);
+
+        	const accessToken = tokenRes.data.access_token;
+
+			const userRes = await axios.get('https://api.intra.42.fr/v2/me', {
+				headers: { Authorization: `Bearer ${accessToken}`}
+			});
+
+			const oauth_id = userRes.data.id;
+			let email = sanitizeEmail(userRes.data.email);
+			let display_name = sanitizeDisplayName(userRes.data.login);
+			let avatar_url = sanitizeAvatar(userRes.data.image?.link || '/default-avatar.png', true);
+			if (!validEmail(email) || !validDisplayName(display_name))
+				return (reply.code(400).send('Invalid OAuth profile data'));
+
+        	let user = await db.get('SELECT id, display_name FROM users WHERE oauth_provider = ? AND oauth_id = ?', ['42', oauth_id]);
     
-      try {
-        const tokenRes = await axios.post(
-          'https://api.intra.42.fr/oauth/token',
-          new URLSearchParams({
-            grant_type: 'authorization_code',
-            client_id: process.env.ECOLE_CLIENT_ID,
-            client_secret: process.env.ECOLE_CLIENT_SECRET,
-            code,
-            redirect_uri: process.env.ECOLE_REDIRECT_URI
-          }),
-          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-        );
-    
-        const accessToken = tokenRes.data.access_token;
-    
-        const userRes = await axios.get('https://api.intra.42.fr/v2/me', {
-          headers: { Authorization: `Bearer ${accessToken}`}
-        });
-    
-        const oauth_id = userRes.data.id;
-        const email = userRes.data.email;
-        const display_name = userRes.data.login;
-        const avatar_url = userRes.data.image?.link || '/default-avatar.png';
+			if (!user)
+			{
+				await db.run(
+					`INSERT INTO users (email, display_name, avatar_url, oauth_provider, oauth_id, account_status)
+                    VALUES (?, ?, ?, ?, ?, ?)`,
+					[email, display_name, avatar_url || '/default-avatar.png', '42', oauth_id,'online']
+          		);
+				user = await db.get('SELECT id, display_name FROM users WHERE oauth_provider = ? AND oauth_id = ?', ['42', oauth_id]);
+			}
   
-        let user = await db.get('SELECT id, display_name FROM users WHERE oauth_provider = ? AND oauth_id = ?', ['42', oauth_id]);
-    
-        if (!user) {
-          await db.run(
-            `INSERT INTO users (email, display_name, avatar_url, oauth_provider, oauth_id, account_status)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [email, display_name, avatar_url || '/default-avatar.png', '42', oauth_id,'online']
-          );
-          user = await db.get('SELECT id, display_name FROM users WHERE oauth_provider = ? AND oauth_id = ?', ['42', oauth_id]);
-        }
-  
-        const token = fastify.jwt.sign({ id: user.id, display_name: user.display_name });
-        reply.setCookie('token', token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60*60*24*7 });
-        return reply.redirect('/profile');
-      } catch (err) {
-        console.error(err);
-        reply.code(500).send('42 OAuth error');
-      }
-    });
-    
-  // 2fa helpers
-    
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
-      auth: { user: MAIL_APP, pass: MAIL_APPPW}
+			const token = fastify.jwt.sign({ id: user.id, display_name: user.display_name });
+			reply.setCookie('token', token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60*60*24*7 });
+			return reply.redirect('/profile');
+		} catch (err) {
+			console.error(err);
+			reply.code(500).send('42 OAuth error');
+		}
     });
 
-    fastify.patch('/api/email', { preValidation: [fastify.authenticate] }, async (req, reply) => {
-      if (!req.user) return reply.code(401).send('Not authenticated');
+	// 2fa helpers
+	const transporter = nodemailer.createTransport({
+		host: 'smtp.gmail.com',
+		port: 587,
+		secure: false,
+		auth: { user: MAIL_APP, pass: MAIL_APPPW}
+	});
+
+	fastify.patch('/api/email', { preValidation: [fastify.authenticate] }, async (req, reply) => {
+		if (!req.user)
+			return reply.code(401).send('Not authenticated');
+
+		let { email } = req.body;
+		email = sanitizeEmail(email);
+		if (!validEmail(email))
+			return (reply.code(400).send('Invalid email'));
+		if (!email)
+			return reply.code(400).send('Email is required');
+
+		const currData = await db.get(
+			`SELECT email, twofa_method FROM users
+            WHERE id = ? `,
+			[req.user.id]
+		);
+
+		if (!currData)
+			return reply.code(404).send('User not found');
+
+		try {
+			if (currData.twofa_method === 'app')
+			{ 
+				await db.run(
+					`UPDATE app_codes SET contact = ?
+                    WHERE contact = ?`,
+					[email, currData.email]
+				);
+			}
+			await db.run('BEGIN');
+			await db.run(`UPDATE users SET email = ? WHERE id = ?`, [email, req.user.id]);
+			await db.run(`DELETE FROM twofa_codes WHERE contact = ?`, [currData.email]);
+			await db.run('COMMIT');
+			reply.send({ success: true });
+		} catch (err) {
+			await db.run('ROLLBACK');
+			reply.code(500).send({ error: 'Database update failed', details: err.message });
+    	}
+	});
+
+	//router
+	fastify.post('/api/register', { preHandler: upload }, async (req, reply) => {
+		let { email, password, display_name, enable_2fa, twofa_method, twofa_verified } = req.body;
+		email = sanitizeEmail(email);
+		display_name = sanitizeDisplayName(display_name);
+
+		if (!validEmail(email))
+			return (reply.code(400).send('Invalid email'));
+		if (!validDisplayName(display_name))
+			return (reply.code(400).send('Invalid display name'));
+		if (password.length < 8)
+			return (reply.code(400).send('Password too short'));
+
+		const avatar = req.file;
     
-      const { email } = req.body;
-      if (!email) return reply.code(400).send('Email is required');
+		if (!email || !password || !display_name)
+			return reply.code(400).send('Missing required fields');
 
-      const currData = await db.get(
-        `SELECT email, twofa_method FROM users
-         WHERE id = ? `,
-        [req.user.id]
-      );
+		if (avatar)
+		{
+        	const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+			if (!allowedTypes.includes(avatar.mimetype))
+				return reply.code(400).send('Invalid avatar format');
+			if (avatar.size > 2 * 1024 * 1024)
+				return reply.code(400).send('File too large (max 2MB)');
+		}
 
-      if (!currData) return reply.code(404).send('User not found');
+		if (enable_2fa !== 'true')
+		{
+			twofa_method = null;
+			twofa_verified = 0;
+		}
 
-      try {
-      if (currData.twofa_method === 'app') { 
-        await db.run(
-          `UPDATE app_codes SET contact = ?
-           WHERE contact = ?`,
-          [email, currData.email]
-        );
-      }
-      await db.run('BEGIN');
-      await db.run(`UPDATE users SET email = ? WHERE id = ?`, [email, req.user.id]);
-      await db.run(`DELETE FROM twofa_codes WHERE contact = ?`, [currData.email]);
-      await db.run('COMMIT');
-      reply.send({ success: true });
-    } catch (err) {
-      await db.run('ROLLBACK');
-      reply.code(500).send({ error: 'Database update failed', details: err.message });
-    }
-    });
-    
-//router
+		const avatarUrl = avatar ? `/uploads/${avatar.filename}` : '/default-avatar.png';
+		const hash = await bcrypt.hash(password, 10);
 
-    fastify.post('/api/register', { preHandler: upload }, async (req, reply) => {
-      
-      let { email, password, display_name, enable_2fa, twofa_method, twofa_verified, oauth_provider, oauth_id, avatar_url } = req.body;
-      const avatar = req.file;
-    
-      if (!email || !password || !display_name) {
-        return reply.code(400).send('Missing required fields');
-      }
+		try {
+			await db.run(
+				`INSERT INTO users (email, password_hash, display_name, avatar_url, twofa_enabled, twofa_method, twofa_verified)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				[email, hash, display_name, avatarUrl, enable_2fa === 'true' ? 1 : 0, twofa_method, twofa_verified ]
+        	);
 
-      if (avatar) {
-        const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
-        if (!allowedTypes.includes(avatar.mimetype)) {
-          return reply.code(400).send('Invalid avatar format');
-        }
-        if (avatar.size > 2 * 1024 * 1024) { 
-          return reply.code(400).send('File too large (max 2MB)');
-        }
-      }
-
-      if (enable_2fa !== 'true'){
-        twofa_method = null;
-        twofa_verified = 0;
-      }
-  
-      const avatarUrl = avatar ? `/uploads/${avatar.filename}` : '/default-avatar.png';
-      const hash = await bcrypt.hash(password, 10);
-
-      try {
-        await db.run(
-          `INSERT INTO users (email, password_hash, display_name, avatar_url, twofa_enabled, twofa_method, twofa_verified)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [email, hash, display_name, avatarUrl, enable_2fa === 'true' ? 1 : 0, twofa_method, twofa_verified ]
-        );
-
-        const user = await db.get(
-          `SELECT id, display_name FROM users WHERE email = ?`,
-          [email]
-        );
-        const token = fastify.jwt.sign({ id: user.id, display_name: user.display_name });
-        reply.setCookie('token', token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60*60*24*7 });
-        reply.code(201).send(user);
-      } catch (err) {
-        if (err.message.includes('UNIQUE')) {
-          return reply.code(409).send('Email or display name already exists');
-        }
-        console.error(err);
-        reply.code(500).send('Internal server error');
-      }
-    });
-
+			const user = await db.get(
+				`SELECT id, display_name FROM users WHERE email = ?`,
+				[email]
+			);
+			const token = fastify.jwt.sign({ id: user.id, display_name: user.display_name });
+			reply.setCookie('token', token, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60*60*24*7 });
+			reply.code(201).send(user);
+		} catch (err) {
+			if (err.message.includes('UNIQUE'))
+				return reply.code(409).send('Email or display name already exists');
+			console.error(err);
+			reply.code(500).send('Internal server error');
+		}
+	});
 
 fastify.post('/api/2fa/send-code', async (req, reply) => {
 
@@ -701,87 +761,91 @@ fastify.get('/api/user/:id', async (req, reply) => {
     return user;
   });
   
-  fastify.patch('/api/avatar', {
-    preValidation: [fastify.authenticate],
-    preHandler: upload,
-  }, async (req, reply) => {
+	fastify.patch('/api/avatar', {
+		preValidation: [fastify.authenticate],
+		preHandler: upload,
+	}, async (req, reply) => {
+		try {
+			const userRow = await db.get(
+				`SELECT avatar_url FROM users WHERE id = ?`,
+				[req.user.id]
+			);
+			if (!userRow)
+				return (reply.code(404).send({ error: 'User not found' }));
 
-    const avatar = req.file;
-    if (avatar) {
-      const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
-      if (!allowedTypes.includes(avatar.mimetype)) {
-        return reply.code(400).send('Invalid avatar format');
-      }
-      if (avatar.size > 2 * 1024 * 1024) { 
-        return reply.code(400).send('File too large (max 2MB)');
-      }
-    }
+			const oldAvatarUrl = userRow.avatar_url;
+			const file = req.file;
 
-    const result = await db.get(
-      `SELECT avatar_url FROM users WHERE id = ?`,
-      [req.user.id]
-    );
-    if (!result) return reply.code(404).send({ error: 'User not found' });
-    const oldAvatarUrl = result?.avatar_url;
-  
-    if (avatar && oldAvatarUrl && oldAvatarUrl.startsWith('/uploads/')) {
-      const oldFilePath = path.join(__dirname, 'uploads', path.basename(oldAvatarUrl));
-      fs.unlink(oldFilePath, (err) => {
-        if (err) {
-          console.error('Failed to delete old avatar:', err.message);
-        } else {
-          console.log('Old avatar deleted:', oldFilePath);
-        }
-      });
-    }
+			if (!file)
+				return (reply.code(400).send({ error: 'Upload required (remote URLs disabled)' }));
 
-    const newAvatarUrl = avatar ? `/uploads/${avatar.filename}` : req.body.avatar_url?.trim();
-    if (newAvatarUrl){
-    await db.run(
-      `UPDATE users SET avatar_url = ? WHERE id = ?`,
-      [newAvatarUrl, req.user.id]
-    );}
+			const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+			if (!allowedTypes.includes(file.mimetype))
+				return (reply.code(400).send({ error: 'Invalid avatar format' }));
+			if (file.size > 2 * 1024 * 1024)
+				return (reply.code(400).send({ error: 'File too large (max 2MB)' }));
 
-    const updatedUser = await db.get(
-      `SELECT id, email, display_name, avatar_url, created_at, last_online, account_status FROM users WHERE id = ?`,
-      [req.user.id]
-    );
-  
-    return { message: 'Profile updated', user: updatedUser };
-  });
-  
+			const finalAvatar = sanitizeAvatar(`/uploads/${file.filename}`);
 
-  fastify.patch('/api/name', {
-    preValidation: [fastify.authenticate],
-    preHandler: upload,
-  }, async (req, reply) => {
-
-    const { display_name } = req.body;
-    const trimmedName = display_name?.trim();
-
-    const oldName = await db.get(
-      `SELECT display_name, avatar_url FROM users WHERE id = ?`,
-      [req.user.id]
-    );
-  
-    if (!oldName) return reply.code(404).send({ error: 'User not found' });
-  
-    if (trimmedName === oldName) {
-      return reply.code(400).send({ error: 'No changes made' });
-    }
+			await db.run(
+				`UPDATE users SET avatar_url = ? WHERE id = ?`,
+				[finalAvatar, req.user.id]
+			);
+			if (oldAvatarUrl && oldAvatarUrl !== finalAvatar && oldAvatarUrl.startsWith('/uploads/'))
+			{
+				const oldFilePath = path.join(__dirname, 'uploads', path.basename(oldAvatarUrl));
+				fs.unlink(oldFilePath, err => {
+					if (err)
+						fastify.log.warn('Old avatar delete failed: ' + err.message);
+				});
+			}
+			const updated = await db.get(
+				`SELECT id, email, display_name,avatar_url, created_at, last_online, account_status
+				FROM users WHERE id = ?`,
+				[req.user.id]
+			);
+			return ({ message: 'Avatar updated', user: updated });
+		} catch (e) {
+			req.log.error(e);
+			return (reply.code(500).send({ error: 'Avatar update failed'}));
+		}
+	});
   
 
-      await db.run(
-        `UPDATE users SET display_name = ? WHERE id = ?`,
-        [trimmedName, req.user.id]
-      );
+	fastify.patch('/api/name', { preValidation: [fastify.authenticate], preHandler: upload }, async (req, reply) => {
+		let { display_name } = req.body || {};
+		const oldName = await db.get(
+			`SELECT display_name, avatar_url FROM users WHERE id = ?`,
+			[req.user.id]
+		);
+		if (!oldName)
+			return reply.code(404).send({ error: 'User not found' });
 
-    const updatedUser = await db.get(
-      `SELECT id, email, display_name, avatar_url, created_at, last_online, account_status FROM users WHERE id = ?`,
-      [req.user.id]
-    );
-    return { message: 'Profile updated', user: updatedUser };
-  });
+		const cleaned = sanitizeDisplayName(display_name || '');
+		if (!cleaned)
+			return (reply.code(400).send({ error: 'Display name required' }));
+		if (!validDisplayName(cleaned))
+			return (reply.code(400).send({ error: 'Invalid display name' }));
+		if (cleaned === oldName.display_name)
+			return (reply.code(400).send({ error: 'No changes made' }));
+		try {
+			await db.run(
+				`UPDATE users SET display_name = ? WHERE id = ?`,
+				[cleaned, req.user.id]
+			);
+		} catch (e) {
+			if (/UNIQUE/i.test(e.message))
+				return (reply.code(409).send({ error: 'Display name already exists' }));
+			req.log.error(e);
+			return (reply.code(500).send({ error: 'Update failed' }));
+		}
+
+		const updatedUser = await db.get(
+			`SELECT id, email, display_name, avatar_url, created_at, last_online, account_status FROM users WHERE id = ?`,
+			[req.user.id]
+		);
+		return { message: 'Profile updated', user: updatedUser };
+	});
 
   fastify.patch('/api/password', {preValidation: [fastify.authenticate]}, async (req, reply) => {
     const { password } = req.body;
@@ -1002,6 +1066,7 @@ fastify.get('/api/user/:id', async (req, reply) => {
       return reply.code(500).send({ error: 'Anonymize failed', detail: e.message });
     }
   });
+
   fastify.get('/api/account/export', { preValidation: [fastify.authenticate] }, async (req, reply) => {
     const userId = req.user.id;
     try {
@@ -1028,17 +1093,41 @@ fastify.get('/api/user/:id', async (req, reply) => {
     }
   });
 
-  fastify.patch('/api/account/update', { preValidation: [fastify.authenticate] }, async (req, reply) => {
-    const userId = req.user.id;
-    const { display_name, email } = req.body || {};
-    if (!display_name && !email) return reply.code(400).send({ error: 'Nothing to update' });
-    try {
-      if (display_name) await db.run(`UPDATE users SET display_name = ? WHERE id = ?`, [display_name, userId]);
-      if (email) await db.run(`UPDATE users SET email = ? WHERE id = ?`, [email, userId]);
-      return { ok: true };
-    } catch (err) {
-      fastify.log.error(err);
-      return reply.code(500).send({ error: 'Update failed' });
-    }
-  });
+	fastify.patch('/api/account/update', { preValidation: [fastify.authenticate] }, async (req, reply) => {
+		const userId = req.user.id;
+		let { display_name, email } = req.body || {};
+		const sets = [];
+		const params = [];
+
+		if (display_name !== undefined)
+		{
+			display_name = sanitizeDisplayName(display_name);
+			if (!validDisplayName(display_name))
+				return (reply.code(400).send({ error: 'Invalid display name' }));
+			sets.push('display_name = ?');
+			params.push(display_name);
+		}
+		if (email !== undefined)
+		{
+			email = sanitizeEmail(email);
+			if (!validEmail(email))
+				return (reply.code(400).send({ error: 'Invalid email' }));
+			sets.push('email = ?');
+			params.push(email);
+		}
+
+		if (!sets.length)
+			return (reply.code(400).send({ error: 'Nothing to update' }));
+
+		try {
+			params.push(userId);
+			await db.run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, params);
+			return ({ ok: true });
+		} catch (e) {
+			if (/UNIQUE/i.test(e.message))
+				return (reply.code(409).send({ error: 'Email or display name already exists' }));
+			fastify.log.error(e);
+			return reply.code(500).send({ error: 'Update failed' });
+		}
+	});
 };

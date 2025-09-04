@@ -4,46 +4,6 @@ import { route } from '../router.js';
 import { getUserInfo } from '../users/userManagement.js';
 import { initPongGame } from '../pong/pong.js';
 
-function onBackToLobby(ev: Event, lobbyId: number) {
-  ev.preventDefault();
-  ev.stopPropagation();
-  // ensure the match WS is closed so the server sees the host leaving
-  try { (window as any).__tournRoomCleanup?.(); } catch {}
-  const inProg = !!(window as any).__matchInProgress;
-  if (inProg) {
-    // host leaves mid-game: mirror the broadcast message locally for the leaver
-    try { alert('a host left mid game, the tournament is canceled. You will be brought home'); } catch {}
-    route('/home');
-    return false;
-  }
-  // not in progress (e.g., after gameover): safe to return to lobby
-  route(`/tournament-online?lobby=${lobbyId}`);
-  return false;
-}
-
-function handleAbortOnce(payload?: any) {
-  try {
-    const now = Date.now();
-    const last = Number(localStorage.getItem('tourn.abort.ts') || '0');
-    if (now - last < 1500) return;
-    localStorage.setItem('tourn.abort.ts', String(now));
-  } catch {}
-  try {
-    const lid = String(payload?.lobbyId || localStorage.getItem('tourn.lobby') || '');
-    if (lid) {
-      localStorage.removeItem('tourn.lobby');
-      localStorage.removeItem('tourn.match');
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith('tourn.room2lobby.')) localStorage.removeItem(k);
-      }
-    }
-  } catch {}
-  try { (window as any).__matchInProgress = false; (window as any).__activeTournamentHostLobbyId = undefined; } catch {}
-      alert(String(payload?.message || 'a host left mid game, the tournament is canceled. You will be brought home'));
-  try { route('/home'); } catch { location.href = '/home'; }
-}
-
 type MatchLite = {
   id: number;
   round: number;
@@ -190,8 +150,8 @@ export async function renderOnlineTournamentRoom() {
     const s2 = localStorage.getItem('p2Score') || '0';
     const el1 = document.getElementById('player1-info');
     const el2 = document.getElementById('player2-info');
-    if (el1) el1.innerHTML = `${escapeHtml(hostAlias)}: ${escapeHtml(s1)}`;
-    if (el2) el2.innerHTML = `${escapeHtml(guestAlias)}: ${escapeHtml(s2)}`;
+    if (el1) el1.textContent = `${hostAlias}: ${s1}`;
+    if (el2) el2.textContent = `${guestAlias}: ${s2}`;
   };
 
   let guestJoined = guestAlias && guestAlias !== WAITING;
