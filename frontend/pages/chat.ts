@@ -116,69 +116,94 @@ export async function updateChatBox() {
     } catch {}
   }));
 
-  const html = messages.map((msg) => {
-    const ts = parseTimestamp(msg.timestamp);
-    const timestamp = ts ? formatDbTime(msg.timestamp) : '';
-    const aliasMarkup = renderChatAlias(msg);
-    const rawText = decodeAngles(msg.message);
-    const inviteMatch = /<\(\s*invite\s*\)\s*:\s*(\d+)\s*>/i.exec(rawText);
-    const tournMatch = /<\(\s*tournament\s*\)\s*:\s*(\d+)\s*>/i.exec(rawText);
+	chatBox.innerHTML = "";
+	messages.forEach((msg) =>
+	{
+		const ts = parseTimestamp(msg.timestamp);
+		const timestamp = ts ? formatDbTime(msg.timestamp) : "";
 
-    if (inviteMatch) {
-      const roomId = Number(inviteMatch[1]);
-      const st = statusMap[roomId];
-      const isFull = st?.has_guest === true || st?.joinable === false;
-      if (isFull) return '';
-      const buttonHtml = `<button
-            class="px-2 py-0.5 border rounded invite-btn border-green-400 hover:bg-green-700"
-            data-invite-btn="1"
-            data-room-id="${roomId}"
-            onclick="joinGameInvite(${roomId})"
-          >Join match</button>`;
-      return `
-        <div class="msg" data-ts="${msg.timestamp}">
-          <span class="text-gray-400">[${timestamp}]</span>
-          <span class="alias">${aliasMarkup}</span>:
-          <span class="inline-flex items-center gap-2">
-            <span class="italic text-green-300">invited you to play</span>
-            ${buttonHtml}
-          </span>
-        </div>
-      `;
-    }
+		const msgDiv = document.createElement("div");
+		msgDiv.className = "msg";
+		msgDiv.dataset.ts = String(msg.timestamp);
 
-    if (tournMatch) {
-      const lobbyId = Number(tournMatch[1]);
-      const st = lobbyStatusMap[lobbyId];
-      if (!st?.joinable) return '';
-      const buttonHtml = `<button
-          class="px-2 py-0.5 border rounded border-purple-400 hover:bg-purple-700"
-          data-tournament-join="1"
-          onclick="joinTournamentInvite(${lobbyId})"
-        >Join tournament (${st.count}/${st.size})</button>`;
-      return `
-        <div class="msg" data-ts="${msg.timestamp}">
-          <span class="text-gray-400">[${timestamp}]</span>
-          <span class="alias">${aliasMarkup}</span>:
-          <span class="inline-flex items-center gap-2">
-            <span class="italic text-purple-300">invited you to an online tournament</span>
-            ${buttonHtml}
-          </span>
-        </div>
-      `;
-    }
+		const spanTime = document.createElement("span");
+		spanTime.className = "text-gray-400";
+		spanTime.textContent = `[${timestamp}]`;
+		msgDiv.appendChild(spanTime);
 
-    return `
-      <div class="msg" data-ts="${msg.timestamp}">
-        <span class="text-gray-400">[${timestamp}]</span>
-        <span class="alias">${aliasMarkup}</span>:
-        <span class="body break-words">${escapeHtml(msg.message)}</span>
-      </div>
-    `;
-  }).filter(Boolean).join('');
+		const aliasNode = renderChatAlias(msg);
+		msgDiv.appendChild(aliasNode);
 
-  chatBox.innerHTML = html;
-  chatBox.scrollTop = chatBox.scrollHeight;
+		msgDiv.append(": ");
+
+		const rawText = decodeAngles(msg.message);
+		const inviteMatch = /<\(\s*invite\s*\)\s*:\s*(\d+)\s*>/i.exec(rawText);
+		const tournMatch = /<\(\s*tournament\s*\)\s*:\s*(\d+)\s*>/i.exec(rawText);
+
+		if (inviteMatch)
+		{
+			const roomId = Number(inviteMatch[1]);
+			const st = statusMap[roomId];
+			const isFull = st?.has_guest === true || st?.joinable === false;
+			if (isFull)
+				return ;
+
+			const wrapper = document.createElement("span");
+			wrapper.className = "inline-flex items-center gap-2";
+
+			const spanTxt = document.createElement("span");
+			spanTxt.className = "italic text-green-300";
+			spanTxt.textContent = "invited you to play";
+			wrapper.appendChild(spanTxt);
+
+			const button = document.createElement("button");
+			button.className = 
+				"px-2 py-0.5 border rounded invite-btn border-green-400 hover:bg-green-700";
+			button.dataset.inviteBtn = "1";
+			button.dataset.roomId = String(roomId);
+			button.textContent = "Join match";
+			button.addEventListener("click", () => (window as any).joinGameInvite(roomId));
+			wrapper.appendChild(button);
+
+			msgDiv.appendChild(wrapper);
+			chatBox.appendChild(msgDiv);
+			return ;
+		}
+		if (tournMatch)
+		{
+			const lobbyId = Number(tournMatch[1]);
+			const st = lobbyStatusMap[lobbyId];
+			if (!st?.joinable)
+				return ;
+
+			const wrapper = document.createElement("span");
+			wrapper.className = "inline-flex items-center gap-2";
+
+			const spanTxt = document.createElement("span");
+			spanTxt.className = "italic text-purple-300";
+			spanTxt.textContent = "invited you to an online tournament";
+			wrapper.appendChild(spanTxt);
+
+			const button = document.createElement("button");
+			button.className = 
+				"px-2 py-0.5 border rounded border-purple-400 hover:bg-purple-700";
+			button.dataset.tournamentJoin = "1";
+			button.textContent = `Join tournament (${st.count}/${st.size})`;
+			button.addEventListener("click", () => (window as any).joinTournamentInvite(lobbyId));
+			wrapper.appendChild(button);
+
+			msgDiv.appendChild(wrapper);
+			chatBox.appendChild(msgDiv);
+			return ;
+		}
+		const spanBody = document.createElement("span");
+		spanBody.className = "body break-words";
+		spanBody.textContent = msg.message;
+		msgDiv.appendChild(spanBody);
+		chatBox.appendChild(msgDiv);
+	});
+
+	chatBox.scrollTop = chatBox.scrollHeight;
 
   function parseTimestamp(s: string): number | null {
     const d = new Date(s);
@@ -189,15 +214,24 @@ export async function updateChatBox() {
   }
 }
 
-function renderChatAlias(msg: { user_id?: number | null; alias: string }): string {
-  const name = escapeHtml(msg.alias);
-  if (msg.user_id) {
-    return `<a href="/profile/${msg.user_id}"
-              class="chat-alias text-blue-400 hover:underline cursor-pointer"
-              data-chat-user-id="${msg.user_id}"
-              data-chat-alias="${name}">${name}</a>`;
-  }
-  return `<strong>${name}</strong>`;
+function renderChatAlias(msg: { user_id?: number | null; alias: string }): HTMLElement
+{
+	const name = msg.alias;
+
+	if (msg.user_id)
+	{
+		const a = document.createElement("a");
+		a.href = `/profile/${msg.user_id}`;
+		a.className = "chat-alias text-blue-400 hover:underline cursor-pointer";
+		a.dataset.chatUserId = String(msg.user_id);
+		a.dataset.chatAlias = name;
+		a.textContent = name; // safe
+		return (a);
+	}
+
+	const strong = document.createElement("strong");
+	strong.textContent = name;
+	return (strong);
 }
 
 // --- Chat alias popover menu ---
