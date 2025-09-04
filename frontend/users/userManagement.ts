@@ -594,7 +594,6 @@ function renderProfileHTML(user: User): string {
 				<button type="button" id="avatar-cancel" class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded">Reset</button>
 			</div>
 			<div id="avatar-file-name" class="text-xs text-gray-400"></div>
-			<div class="text-xs text-gray-500">Not saved until you click "Save Avatar".</div>
 			</div>
 		</form>
 		<div class="flex flex-wrap gap-2 text-xs">
