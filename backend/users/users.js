@@ -612,29 +612,47 @@ module.exports = async function registerUsers(fastify)
     }
   });
   
-  fastify.delete('/api/delete-account', { preValidation: [fastify.authenticate] }, async (req, reply) => {
-    const userId = req.user.id;
-    const user = await db.get('SELECT email FROM users WHERE id = ?', [userId]);
+	fastify.delete('/api/delete-account', { preValidation: [fastify.authenticate] }, async (req, reply) => {
+		const userId = req.user.id;
+		const user = await db.get('SELECT email, display_name, id, avatar_url FROM users WHERE id = ?', [userId]);
+		if (!user) return reply.code(404).send({ error: 'Not found' });
 
-    const emailHash = crypto.createHash('sha256').update(user.email).digest('hex');
+		const emailHash = crypto.createHash('sha256').update(user.email).digest('hex');
 
-    await db.run(
-    `INSERT INTO deleted_users (email_hash) VALUES (?)`,
-    [emailHash]
-    );
-  
-    await db.run('DELETE FROM users WHERE id = ?', [userId]);
-    await db.run(`DELETE FROM twofa_codes WHERE contact = ?`, [user.email.toLowerCase()]);
-    await db.run(`DELETE FROM app_codes WHERE contact = ?`, [user.email.toLowerCase()]);
-  
-    reply.clearCookie('token', {
-      path: '/',
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax'
-    });
-    return { message: 'Your account has been permanently deleted' };
-  });
+		try {
+			await db.run('BEGIN');
+
+			await db.run('DELETE FROM messages WHERE alias = ?', [user.display_name]);
+			await db.run('DELETE FROM private_messages WHERE sender_id = ? OR recipient_id = ?', [userId, userId]);
+
+			await db.run('DELETE FROM friends WHERE user_id = ? OR friend_id = ?', [userId, userId]);
+			await db.run('DELETE FROM twofa_codes WHERE contact = ?', [user.email.toLowerCase()]);
+			await db.run('DELETE FROM app_codes WHERE contact = ?', [user.email.toLowerCase()]);
+
+			await db.run('DELETE FROM users WHERE id = ?', [userId]);
+
+			await db.run('COMMIT');
+		} catch (e) {
+			await db.run('ROLLBACK').catch(() => {});
+			fastify.log.error('Delete account txn failed:', e);
+			return reply.code(500).send({ error: 'Delete failed' });
+		}
+
+		// Best-effort: remove uploaded avatar file after commit
+		try {
+			if (user.avatar_url && user.avatar_url.startsWith('/uploads/'))
+			{
+				const oldFilePath = path.join(__dirname, '..', 'uploads', path.basename(user.avatar_url));
+				fs.unlink(oldFilePath, err => {
+				if (err) fastify.log.warn('Avatar delete failed: ' + err.message);
+				});
+			}
+		} catch (e) {
+			fastify.log.warn('Post-delete cleanup failed: ' + e.message);
+		}
+		reply.clearCookie('token', { path: '/', httpOnly: true, secure: true, sameSite: 'lax' });
+		return { message: 'Your account has been permanently deleted' };
+	});
 
 	fastify.post('/api/account/anonymize', {
     preValidation: [fastify.authenticate]

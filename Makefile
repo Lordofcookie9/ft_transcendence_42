@@ -1,17 +1,17 @@
 # Makefile
 
 up:
-	docker compose up --build
+	docker-compose up --build
 
 cleanup: clean
-	docker compose build --no-cache
-	docker compose up --force-recreate --remove-orphans
+	docker-compose build --no-cache
+	docker-compose up --force-recreate --remove-orphans
 
 down:
-	docker compose down
+	docker-compose down
 
 clean:
-	docker compose down -v --rmi all --remove-orphans
+	docker-compose down -v --rmi all --remove-orphans
 	docker volume prune -f
 	docker system prune -af --volumes
 	docker network prune -f

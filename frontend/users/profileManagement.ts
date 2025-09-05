@@ -65,12 +65,7 @@ function renderProfileHTML(user: User): string {
 	const safeAvatar = sanitizeAvatarURL(user.avatar_url);
 	const statusBubble = `<span class="inline-block w-3 h-3 rounded-full ${user.account_status === 'online' ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}"></span>`;
 	return `
-	    <div class="flex justify-between items-start p-4">
-        <a href="/home" onclick="route('/home'); return false;" class="text-gray-400 hover:text-white text-sm">Home</a>
-        <a href="/users" onclick="route('/users'); return false;" class="text-gray-400 hover:text-white text-sm">Users</a>
-		</div>
-
-		<div class="max-w-3xl mx-auto mt-10 text-white">	
+	<div class="max-w-3xl mx-auto mt-10 text-white">	
 		<div class="flex justify-between items-start mb-4">
 		<button id="edit-profile-toggle" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded text-sm">Edit</button>
 		<button id="edit-profile-cancel" class="hidden bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm">Cancel</button>

@@ -21,60 +21,65 @@ export function escapeHTML(str: string) {
 
 export async function renderRegister() {
 	setContent(`
-		<h1>Create Account</h1>
-		
-		<form id="register-form" class="flex flex-col gap-2 mt-4">
-			<input name="display_name" type="text" placeholder="Public Name" required minlength="3" class="p-2 border text-black" />
-			<input name="email" type="email" placeholder="Email" required class="p-2 border text-black" />
-			<input name="password" type="password" placeholder="Password" required minlength="8" pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[@$!%*?&amp;]).{8,}$"
- 				title="Must contain at least 8 characters, one uppercase, one lowercase, one number, and one special character '@$!%*?'" class="p-2 border text-black" />
-
-			<div class="flex flex-col gap-2">
-                <div class="flex items-center gap-3 flex-wrap">
-                    <input id="avatar" name="avatar" type="file" accept="image/*" class="hidden" />
-                    <label for="avatar" class="cursor-pointer inline-flex items-center gap-2 bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm">
-                        <span id="avatar-label-text">Choose avatar</span>
-                    </label>
-                    <span class="text-xs text-gray-400">(optional)</span>
-                </div>
-                <div id="avatar-filename" class="text-xs text-gray-400 line-clamp-1"></div>
-            </div>	
-
-			<label class="flex items-center gap-2">
-				<input type="checkbox" id="enable-2fa" /> Enable 2FA
-			</label>
-
-			<div id="2fa-options" class="hidden flex-col gap-2 border p-2">
-				<label>
-					<input type="radio" name="twofa_method" value="email" /> Email
-				</label>
-				<label>
-					<input type="radio" name="twofa_method" value="app" /> Authenticator App
-				</label>
-			</div>
-
-			<button type="submit" class="bg-green-600 text-white px-4 py-2">Register</button>
-
-			<br>
-			
-			<div class="flex justify-center">
-			<button type="button" onclick="route('/login')" class="bg-white hover:bg-gray-200 transition-colors text-gray-900 font-medium px-4 py-2 rounded text-sm">Already have an account? Login</button>
-			</div>
+		<div class="max-w-md mx-auto mt-10 bg-gray-800/70 backdrop-blur rounded-xl shadow-lg border border-gray-700 p-6 text-white">
+			<h1 class="text-2xl font-bold mb-4 text-center">Create Account</h1>
+			<form id="register-form" class="flex flex-col gap-4">
+				<input name="display_name" type="text" placeholder="Public name" required minlength="1"
+					class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+				<input name="email" type="email" placeholder="Email" required
+					class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+				<input name="password" type="password" placeholder="Password" required minlength="8"
+					pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[@$!%*?&]).{8,}$"
+					title="Must contain at least 8 characters, one uppercase, one lowercase, one number, and one special character '@$!%*?'"
+					class="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-indigo-500 focus:outline-none" />
+				<div class="flex flex-col gap-2">
+					<div class="flex items-center gap-3 flex-wrap">
+						<input id="avatar" name="avatar" type="file" accept="image/*" class="hidden" />
+						<label for="avatar"
+							class="cursor-pointer inline-flex items-center gap-2 bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded text-sm">
+							<span id="avatar-label-text">Choose avatar</span>
+						</label>
+						<span class="text-xs text-gray-400">(optional)</span>
+					</div>
+					<div id="avatar-filename" class="text-xs text-gray-400 line-clamp-1"></div>
+				</div>
+				<div class="space-y-2">
+					<label class="flex items-center gap-2 text-sm">
+						<input type="checkbox" id="enable-2fa" class="accent-indigo-500" /> Enable 2FA
+					</label>
+					<div id="2fa-options"
+						class="hidden flex-col gap-2 border border-gray-600 rounded p-3 bg-gray-900/60 text-sm">
+						<label class="flex items-center gap-2">
+							<input type="radio" name="twofa_method" value="email" class="accent-indigo-500" /> Email
+						</label>
+						<label class="flex items-center gap-2">
+							<input type="radio" name="twofa_method" value="app" class="accent-indigo-500" /> Authenticator App
+						</label>
+					</div>
+				</div>
+				<button type="submit"
+					class="mt-2 bg-indigo-600 hover:bg-indigo-500 transition-colors text-white font-medium px-4 py-2 rounded">
+					Register
+				</button>
+			</form>
 
 			<div class="flex items-center my-6">
-				<div class="flex-grow h-px bg-gray-500"></div>
-				<span class="px-2 text-gray-400 text-sm">OR</span>
-				<div class="flex-grow h-px bg-gray-500"></div>
+				<div class="flex-grow h-px bg-gray-600"></div>
+				<span class="px-2 text-gray-400 text-xs tracking-wide">OR</span>
+				<div class="flex-grow h-px bg-gray-600"></div>
 			</div>
-
 			<div class="mt-2 flex flex-col gap-2">
-				<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-400 rounded px-4 py-2 hover:bg-gray-100 text-black bg-white">
+				<button id="oauth-register"
+					class="flex items-center justify-center gap-3 border border-gray-300 rounded px-4 py-2 bg-white text-gray-900 hover:bg-gray-100 transition-colors shadow">
 					<img src="/42_Logo.svg" alt="42" class="w-6 h-6" />
-					<span class="font-medium">Continue with 42</span>
+					<span class="font-medium">Register with 42</span>
+				</button>
+				<button type="button" onclick="route('/login')"
+					class="bg-gray-700 hover:bg-gray-600 transition-colors text-white font-medium px-4 py-2 rounded text-sm">
+					Already have an account? Login
 				</button>
 			</div>
-
-		</form>
+		</div>
 	`);
 
 	const form = document.getElementById('register-form') as HTMLFormElement;
@@ -240,12 +245,12 @@ async function registerUser(formData: FormData) {
 		await route('/profile');
 	  } else {
 		const msg = await res.text();
-		alert('Error: ' + msg);
+		uiAlert('Error: ' + msg);
 		renderRegister();
 	  }
 	} catch (err) {
 	  console.error(err);
-	  alert(err instanceof Error ? err.message : 'Network error');
+	  uiAlert(err instanceof Error ? err.message : 'Network error');
 	}
 }
 
