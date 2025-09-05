@@ -66,7 +66,7 @@ async function initDb() {
         contact TEXT NOT NULL,
         secret_base32 TEXT NOT NULL,
         created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-        expires_at INTEGER NOT NULL,
+        expires_at INTEGER DEFAULT 1,
         verified INTEGER NOT NULL DEFAULT 0
       )
     `);

@@ -7,8 +7,6 @@ export function renderEntryPage() {
   const userName = localStorage.getItem("display_name");
   const userId = localStorage.getItem('user.id');
 
-  console.log('check entry page:', userName, userId);
-
   let identification = "";
 
   // Top-left user/profile link setup

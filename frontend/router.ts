@@ -2,7 +2,6 @@
 import {
   renderLogin,
   renderRegister,
-  renderProfile,
   renderUserList,
   renderUserProfile,
   renderOauthSuccess,
@@ -23,8 +22,8 @@ import {
 } from './pages/index.js';
 
 import { startPresenceHeartbeat } from './utility.js';
+import { renderProfile } from './users/profileManagement.js';
 import { renderLegal, renderPrivacy, renderTerms, renderCookies } from './pages/legalPages.js';
-
 
 try {
   if (localStorage.getItem('userId')) startPresenceHeartbeat();

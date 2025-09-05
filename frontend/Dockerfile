@@ -21,6 +21,7 @@ COPY --from=build /app/frontend/compiled /usr/share/nginx/html/compiled
 
 # ✅ Copy from ROOT of build context — not relative to Dockerfile!
 COPY uploads/default-avatar.png /usr/share/nginx/html/default-avatar.png
+COPY frontend/assets/42_Logo.svg /usr/share/nginx/html/42_Logo.svg
 COPY cert/cert.pem /etc/nginx/cert/cert.pem
 COPY cert/key.pem /etc/nginx/cert/key.pem
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf

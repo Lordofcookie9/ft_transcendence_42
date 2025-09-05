@@ -69,7 +69,10 @@ export function renderHome() {
   setContent(`
     <!-- Floating Chat Box -->
     <div class="fixed top-4 right-4 w-80 max-w-full sm:w-72 bg-gray-800 text-white rounded shadow-lg z-50 text-sm sm:text-base">
-      <div class="p-2 border-b border-gray-700 font-semibold">Chat Room</div>
+      <div class="p-2 border-b border-gray-700 font-semibold flex justify-between items-center">
+        <span>Chat Room</span>
+        <a href="/users" onclick="route('/users'); return false;" class="text-white hover:text-gray-400 text-xs">Users</a>
+      </div>
       <div id="chatBox" class="p-2 h-60 sm:h-52 overflow-y-auto text-sm break-words"></div>
       <div class="p-2 flex gap-1">
         <input id="messageInput"
