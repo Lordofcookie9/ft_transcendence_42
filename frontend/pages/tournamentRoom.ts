@@ -102,6 +102,12 @@ export async function renderOnlineTournamentRoom() {
     } catch {}
     hostAlias  = data.host_alias || 'P1';
     guestAlias = data.guest_alias || WAITING;
+    try {
+    if (!(window as any).__matchInProgress) {
+      localStorage.setItem('p1Score', '0');
+      localStorage.setItem('p2Score', '0');
+    }
+  } catch {}
   } catch (e: any) {
     setContent(`<div class="p-6 text-red-400">Could not join room: ${escapeHtml(e?.message || '')}</div>`);
     return;
