@@ -15,10 +15,7 @@ function stopChatPolling() {
 }
 
 function startChatPolling() {
-  // Clear any existing interval before starting a new one
   stopChatPolling();
-
-  // Do an immediate refresh and then poll every 3s while on Home
   const tick = () => {
     if (document.hidden) return;
     updateChatBox().catch(() => {});
@@ -125,7 +122,7 @@ export function renderHome() {
   } catch {}
 ;
 
-  // Enable chat controls if the user is authenticated (JWT cookie)
+  // Enable chat controls and online tournament for logged in users
   (async () => {
     try {
       const resp = await fetch('/api/profile', { credentials: 'include' });
@@ -140,7 +137,6 @@ export function renderHome() {
           btn.removeAttribute('disabled');
           btn.removeAttribute('title');
         }
-        // Also enable Online Tournament button now that the user is authenticated
         const btnOnline2 = document.getElementById('btnOnlineTournament') as HTMLButtonElement | null;
         if (btnOnline2) {
           btnOnline2.removeAttribute('disabled');
@@ -183,7 +179,7 @@ export async function sendMessage(_alias: string, message: string): Promise<any>
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ message }) // alias ignored; server uses JWT user
+    body: JSON.stringify({ message })
   });
   return await res.json();
 }
@@ -291,7 +287,7 @@ export async function renderLocalVsAI() {
   const s2 = localStorage.getItem("p2Score") || "0";
 
   setContent(`
-    <div class="relative text-center mt-10">
+    <div class="relative text center mt-10">
       <a href="/home" onclick="route('/home')" class="absolute top-0 left-0 ml-4 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm">← Home</a>
       <h1 class="text-3xl font-bold mb-4">Local VS AI</h1>
 
@@ -331,7 +327,7 @@ export async function renderLocalVsAI() {
       localStorage.setItem("p1Score", "0");
       localStorage.setItem("p2Score", "0");
       localStorage.setItem("game.ai", "left");
-      (window as any).route?.('/local-ai');  // or: (window as any).startLocalVsAI?.();
+      (window as any).route?.('/local-ai'); 
     };
   }
 }
@@ -499,18 +495,107 @@ export async function renderPrivate1v1() {
   const onScore = () => updateNameplates();
   window.addEventListener('pong:score', onScore as any);
 
+  const handlePresence = (incomingAlias?: any) => {
+    const name = (typeof incomingAlias === 'string' ? incomingAlias : '').trim() || 'Player';
+    if (role === 'left') {
+      localStorage.setItem('p2', name);
+      lockedGuestName = name;
+      guestPresent = true;
+      if (hostStartBtn) {
+        hostStartBtn.disabled = false;
+        hostStartBtn.textContent = 'Start match';
+      }
+      const el = document.getElementById('player2-info');
+      if (el) el.textContent = `${name}: 0`;
+    } else {
+      localStorage.setItem('p1', name);
+      lockedHostName = name;
+      const el = document.getElementById('player1-info');
+      if (el) el.textContent = `${name}: 0`;
+    }
+    updateNameplates();
+    try {
+      window.dispatchEvent(new CustomEvent('pong:setNames', {
+        detail: role === 'left' ? { right: name } : { left: name }
+      }));
+    } catch {}
+  };
+
+  let presencePollTimer: number | null = null;
+  const startPresenceSync = () => {
+    if (presencePollTimer != null) return;
+    const poll = async () => {
+      try {
+        const r = await fetch(`/api/game/room/${roomId}`, { credentials: 'include' });
+        if (!r.ok) return;
+        const data = await r.json().catch(() => ({}));
+        const ga = (data?.guest_alias || '').trim();
+        if (ga && ga !== '— waiting —') {
+          handlePresence(ga);
+          if (presencePollTimer != null) { clearInterval(presencePollTimer); presencePollTimer = null; }
+        }
+      } catch {}
+    };
+    poll();
+    presencePollTimer = window.setInterval(poll, 1000);
+  };
+
+  ws.addEventListener('message', (ev) => {
+    let msg: any;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+
+    // go home on host leaving
+    if (msg.type === 'info' && typeof msg.message === 'string') { handleLeftOnce(msg.message); return; }
+
+    if (msg.type === 'opponent:left' && msg.role === 'host' && role === 'right') { handleLeftOnce('host left. Going back home'); return; }
+    if (msg.type === 'opponent:joined') { handlePresence(msg.alias); return; }
+    if (msg.type === 'hello') { handlePresence(msg.alias); return; }
+    if (role === 'left' && msg.type === 'input' && pushGuestInputToEngine) {
+      pushGuestInputToEngine({ up: !!msg.up, down: !!msg.down });
+      return;
+    }
+    if (role === 'right' && msg.type === 'state' && applyStateFromHost) {
+      hidePrestart();
+      applyStateFromHost(msg.state);
+      try {
+        const scores = (msg.state && (msg.state.scores || {})) || {};
+        const left  = Number((scores.left ?? msg.state?.leftScore ?? msg.state?.p1Score ?? msg.state?.scoreLeft) ?? 0);
+        const right = Number((scores.right ?? msg.state?.rightScore ?? msg.state?.p2Score ?? msg.state?.scoreRight) ?? 0);
+        if (Number.isFinite(left) && Number.isFinite(right)) {
+          localStorage.setItem('p1Score', String(left));
+          localStorage.setItem('p2Score', String(right));
+          updateNameplates();
+          window.dispatchEvent(new CustomEvent('pong:score', { detail: { left, right } }));
+        }
+      } catch {}
+      return;
+    }
+
+    if (msg.type === 'gameover') {
+      hidePrestart();
+      updateNameplates();
+      showEndOverlay(msg.detail);
+      reportResult();
+      if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
+      return;
+    }
+  });
+
   ws.addEventListener('open', () => {
-    const myAlias = sanitizeAlias(localStorage.getItem('display_name') || localStorage.getItem('alias') || 'Player');
+    const raw = localStorage.getItem('display_name') || localStorage.getItem('alias') || '';
+    const myAlias = (sanitizeAlias(raw) || '').trim() || 'Player';
     ws.send(JSON.stringify({ type: 'hello', alias: myAlias, role }));
+
+    if (role === 'left' && !guestPresent) startPresenceSync();
   });
 
   ws.addEventListener('close', () => {
     window.removeEventListener('beforeunload', cleanup);
     window.removeEventListener('popstate', cleanup);
     window.removeEventListener('pong:score', onScore as any);
+    if (presencePollTimer != null) { clearInterval(presencePollTimer); presencePollTimer = null; }
   });
 
-  // Engine interop holders
   let pushGuestInputToEngine: ((input: { up: boolean; down: boolean }) => void) | null = null;
   let applyStateFromHost: ((state: any) => void) | null = null;
   let resendTimer: number | null = null;
@@ -568,74 +653,6 @@ export async function renderPrivate1v1() {
       startHostGame();
     });
   }
-
-  ws.addEventListener('message', (ev) => {
-    let msg: any;
-    try { msg = JSON.parse(ev.data); } catch { return; }
-
-      // go home on host leaving
-    if (msg.type === 'info' && typeof msg.message === 'string') { handleLeftOnce(msg.message); return; }
-
-    if (msg.type === 'opponent:left' && msg.role === 'host' && role === 'right') { handleLeftOnce('host left. Going back home'); return; }
-    if (msg.type === 'hello' && msg.alias) {
-      const name = String(msg.alias);
-      if (role === 'left') {
-        localStorage.setItem('p2', name);
-        lockedGuestName = name;
-        guestPresent = true;
-        if (hostStartBtn) {
-          hostStartBtn.disabled = false;
-          hostStartBtn.textContent = 'Start match';
-        }
-        const el = document.getElementById('player2-info');
-        if (el) el.textContent = `${name}: 0`;
-      } else {
-        localStorage.setItem('p1', name);
-        lockedHostName = name;
-        const el = document.getElementById('player1-info');
-        if (el) el.textContent = `${name}: 0`;
-      }
-      updateNameplates();
-      try {
-        if (role === 'left') {
-          window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { right: name } }));
-        } else {
-          window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { left: name } }));
-        }
-      } catch {}
-      return;
-    }
-
-    if (role === 'left' && msg.type === 'input' && pushGuestInputToEngine) {
-      pushGuestInputToEngine({ up: !!msg.up, down: !!msg.down });
-      return;
-    }
-    if (role === 'right' && msg.type === 'state' && applyStateFromHost) {
-      hidePrestart();
-      applyStateFromHost(msg.state);
-      try {
-        const scores = (msg.state && (msg.state.scores || {})) || {};
-        const left  = Number((scores.left ?? msg.state?.leftScore ?? msg.state?.p1Score ?? msg.state?.scoreLeft) ?? 0);
-        const right = Number((scores.right ?? msg.state?.rightScore ?? msg.state?.p2Score ?? msg.state?.scoreRight) ?? 0);
-        if (Number.isFinite(left) && Number.isFinite(right)) {
-          localStorage.setItem('p1Score', String(left));
-          localStorage.setItem('p2Score', String(right));
-          updateNameplates();
-          window.dispatchEvent(new CustomEvent('pong:score', { detail: { left, right } }));
-        }
-      } catch {}
-      return;
-    }
-
-    if (msg.type === 'gameover') {
-      hidePrestart();
-      updateNameplates();
-      showEndOverlay(msg.detail);
-      reportResult();
-      if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
-      return;
-    }
-  });
 
   if (role === 'right') {
     // GUEST: send input, render host snapshots
@@ -776,5 +793,5 @@ window.startOnlineTournamentSetup = async function startOnlineTournamentSetup() 
 window.addEventListener('beforeunload', stopChatPolling);
 window.addEventListener('popstate', stopChatPolling);
 
-try { (window as any).__stopChatPolling = stopChatPolling; } catch {}
 
+try { (window as any).__stopChatPolling = stopChatPolling; } catch {}
