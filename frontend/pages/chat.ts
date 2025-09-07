@@ -31,20 +31,6 @@ export function renderChat() {
   updateChatBox();
 }
 
-let knownUserSet: Set<string> | null = null;
-
-async function loadKnownUsers() {
-  if (knownUserSet) return;
-  try {
-    const res = await fetch('/api/users');
-    const users = await res.json();
-    knownUserSet = new Set(users.map((u: any) => u.display_name));
-  } catch (err) {
-    console.error("Failed to load known users", err);
-    knownUserSet = new Set();
-  }
-}
-
 export async function updateChatBox() {
   const chatBox = document.getElementById('chatBox') as HTMLDivElement | null;
   if (!chatBox) return;
@@ -88,14 +74,13 @@ export async function updateChatBox() {
   ));
   type LobbyStatus = { joinable: boolean; count: number; size: number };
   const lobbyStatusMap: Record<number, LobbyStatus> = {};
-  // Avoid hammering the API for destroyed tournaments (404). Cache in sessionStorage for 5 minutes.
+  // Avoid hammering the API when deleting tournaments (404).
   const DEAD_KEY = 'dead.tournaments';
   let dead: Record<number, number> = {};
   try { dead = JSON.parse(sessionStorage.getItem(DEAD_KEY) || '{}'); } catch { dead = {}; }
 
   await Promise.all(tournamentIds.map(async (tid) => {
     try {
-      // skip if recently known dead
       const deadAt = (dead as any)[tid];
       if (deadAt && (Date.now() - Number(deadAt)) < 5 * 60 * 1000) return;
       const resp = await fetch(`/api/tournament/${tid}`, { credentials: 'include' });

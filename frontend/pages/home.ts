@@ -19,7 +19,6 @@ function startChatPolling() {
   stopChatPolling();
 
   // Do an immediate refresh and then poll every 3s while on Home
-  // Also skip polling when the tab is hidden to avoid bursts on tab return
   const tick = () => {
     if (document.hidden) return;
     updateChatBox().catch(() => {});
@@ -158,7 +157,7 @@ export function renderHome() {
   document.getElementById('logout')?.addEventListener('click', logout);
   updateChatBox();
   startChatPolling();
-  updateCounter(); // harmless if the element isn't present
+  updateCounter();
 }
 
 // --- API Helpers ---
@@ -179,8 +178,6 @@ export async function getMessages(): Promise<any[]> {
   return await res.json();
 }
 
-// Keep this function but note: backend now requires auth and derives alias.
-// If you call this elsewhere, it should be from a logged-in state.
 export async function sendMessage(_alias: string, message: string): Promise<any> {
   const res = await fetch('/api/chat', {
     method: 'POST',
@@ -215,12 +212,10 @@ export async function sendPrivateMessage(recipientId: number, message: string): 
   return res.json();
 }
 
-// Make it callable from the chat popover (bind once)
 (window as any).sendPrivateMessage = (window as any).sendPrivateMessage || sendPrivateMessage;
 
 // --- Page Stubs ---
 export async function renderLocal1v1() {
-  // Use Option A layout override and mark 1v1 in progress
   document.body.style.display = 'block';
   document.body.style.height = 'auto';
   document.body.style.alignItems = '';
@@ -228,7 +223,6 @@ export async function renderLocal1v1() {
   try { localStorage.setItem('game.inProgress', 'local'); } catch {}
   try { localStorage.removeItem('game.ai'); } catch {}
 
-  // Left = opponent alias (p1), Right = you (p2).
   const leftName  = localStorage.getItem("p1") || "P1";
   const rightName = localStorage.getItem("p2") || 
     sanitizeAlias(localStorage.getItem("display_name") || localStorage.getItem("alias") || "P2");
@@ -259,7 +253,7 @@ export async function renderLocal1v1() {
   if (container) {
     try { localStorage.setItem('p1Score','0'); localStorage.setItem('p2Score','0'); } catch {}
     initPongGame(container as HTMLElement, () => {
-      // 1v1 finished — clear the flag
+      // 1v1 finished
       try { localStorage.removeItem('game.inProgress'); } catch {}
     });
   }
@@ -277,13 +271,10 @@ export async function renderLocal1v1() {
       }
     };
   }
-
-  // Explicitly mark tournament UI inactive when in 1v1
   try { (window as any).tournament && ((window as any).tournament.uiActive = false); } catch {}
 }
 
 export async function renderLocalVsAI() {
-  // Layout tweaks like renderLocal1v1
   document.body.style.display = 'block';
   document.body.style.height = 'auto';
   document.body.style.alignItems = '';
@@ -334,7 +325,6 @@ export async function renderLocalVsAI() {
     );
   }
 
-  // Simple replay handler: reset scores and reload this page
   const replayBtn = document.getElementById("replay-btn") as HTMLButtonElement | null;
   if (replayBtn) {
     replayBtn.onclick = () => {
@@ -352,7 +342,7 @@ export async function renderLocalVsAI() {
   localStorage.setItem("p2", me);   // right = you
   localStorage.setItem("p1Score", "0");
   localStorage.setItem("p2Score", "0");
-  localStorage.setItem("game.ai", "left"); // hint for the engine; we'll use this next
+  localStorage.setItem("game.ai", "left");
   (window as any).route?.('/local-ai');
 });
 
@@ -383,10 +373,9 @@ export async function renderPrivate1v1() {
     hostAlias  = data.host_alias || 'P1';
     guestAlias = data.guest_alias || '— waiting —';
 
-    // Store host name immediately
+    // Store host name
     localStorage.setItem('p1', hostAlias);
 
-    // IMPORTANT: do NOT store the "— waiting —" placeholder in localStorage.
     if (guestAlias && guestAlias !== '— waiting —') {
       localStorage.setItem('p2', guestAlias);
     } else {
@@ -402,9 +391,8 @@ export async function renderPrivate1v1() {
     return;
   }
 
-  // Sends the result to the backend.
+  // Sends result to the backend.
   async function reportResult() {
-    // host=left=P1, guest=right=P2 in this view
     const p1 = parseInt(localStorage.getItem('p1Score') || '0', 10);
     const p2 = parseInt(localStorage.getItem('p2Score') || '0', 10);
     if (Number.isNaN(p1) || Number.isNaN(p2) || p1 === p2) return;
@@ -424,7 +412,6 @@ export async function renderPrivate1v1() {
     }
   }
 
-  // Base UI with our own Start (host-only, disabled until guest arrives)
   const hostStartHtml = role === 'left' ? `
     <div id="host-start-wrap" class="mb-3">
       <button id="host-start" class="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:opacity-60 text-white px-4 py-2 rounded" disabled>
@@ -500,7 +487,7 @@ export async function renderPrivate1v1() {
     el.querySelector('#end-ok')?.addEventListener('click', () => el.remove());
   }
 
-  // Build ws:// or wss:// correctly
+  // Build wss://
   const wsProto  = location.protocol === 'https:' ? 'wss' : 'ws';
   const wsURL    = `${wsProto}://${location.host}/ws/game/${roomId}?role=${role}`;
   const ws = new WebSocket(wsURL);
@@ -528,7 +515,7 @@ export async function renderPrivate1v1() {
   let applyStateFromHost: ((state: any) => void) | null = null;
   let resendTimer: number | null = null;
 
-  // HOST: start function (deferred until guest is present + button click)
+  // start function
   const startHostGame = () => {
     if (hostStarted || !container) return;
     hostStarted = true;
@@ -565,7 +552,6 @@ export async function renderPrivate1v1() {
       }
     );
 
-    // Tell engine the names
     try {
       const maybeRight = (localStorage.getItem('p2') || lockedGuestName || '').trim();
       const detail: any = { left: lockedHostName };
@@ -574,7 +560,6 @@ export async function renderPrivate1v1() {
     } catch {}
   };
 
-  // Wire Start button
   if (role === 'left' && hostStartBtn) {
     hostStartBtn.disabled = !guestPresent;
     if (guestPresent) hostStartBtn.textContent = 'Start match';
@@ -626,7 +611,7 @@ export async function renderPrivate1v1() {
       return;
     }
     if (role === 'right' && msg.type === 'state' && applyStateFromHost) {
-      hidePrestart(); // once host is sending
+      hidePrestart();
       applyStateFromHost(msg.state);
       try {
         const scores = (msg.state && (msg.state.scores || {})) || {};
@@ -653,7 +638,7 @@ export async function renderPrivate1v1() {
   });
 
   if (role === 'right') {
-    // GUEST: send input; render host snapshots
+    // GUEST: send input, render host snapshots
     const pressed = { up: false, down: false };
     const send = () => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -772,7 +757,7 @@ window.startOnlineTournamentSetup = async function startOnlineTournamentSetup() 
     return;
   }
 
-  // Announce invite in public chat (host shares lobby id)
+  // Announce invite in public chat
   try {
     const msg = `<(tournament):${lobbyId}>`;
     await fetch('/api/chat', {
@@ -783,16 +768,13 @@ window.startOnlineTournamentSetup = async function startOnlineTournamentSetup() 
     });
   } catch {}
 
-  // Go to lobby page
   (window as any).route?.(`/tournament-online?lobby=${encodeURIComponent(String(lobbyId))}`);
 };
 
 
-// Ensure chat polling stops when navigating away
+// Clean chat when join tournament
 window.addEventListener('beforeunload', stopChatPolling);
 window.addEventListener('popstate', stopChatPolling);
 
-
-// Expose a global stop to allow router to clean up when navigating away
 try { (window as any).__stopChatPolling = stopChatPolling; } catch {}
 

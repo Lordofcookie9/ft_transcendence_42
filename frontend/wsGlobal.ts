@@ -2,12 +2,11 @@
 import { route } from './router.js';
 
 function handleAbortOnce(payload?: any) {
-  // Prevent repeated alerts for the same aborted tournament (e.g., due to WS reconnect or page redraw)
+  // Prevent repeated alerts for aborted tournament
   try {
     const lidStr = String(payload?.lobbyId || localStorage.getItem('tourn.lobby') || '');
     const lastLid = localStorage.getItem('tourn.abort.lobby') || '';
     if (lidStr && lidStr === lastLid) {
-      // We've already handled this lobby abort; make sure client state is clean and bail.
       try { (window as any).__matchInProgress = false; (window as any).__activeTournamentHostLobbyId = undefined; } catch {}
       return;
     }
@@ -55,7 +54,6 @@ export function connectGlobalWS() {
         }
         if (msg?.type === 'tournament:aborted') { handleAbortOnce(msg); }
         if (msg && msg.type === 'gameover') {
-            // Once game is over, host navigation should NOT cancel the tournament
             (window as any).__matchInProgress = false;
             try { (window as any).__activeTournamentHostLobbyId = undefined; } catch {}
         }

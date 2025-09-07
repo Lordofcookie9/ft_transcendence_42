@@ -1,4 +1,3 @@
-// frontend/pages/tournamentRoom.ts
 import { setContent, escapeHtml } from '../utility.js';
 import { route } from '../router.js';
 import { getUserInfo } from '../users/userManagement.js';
@@ -71,12 +70,11 @@ export async function renderOnlineTournamentRoom() {
   const btnStart = document.getElementById('btn-start') as HTMLButtonElement | null;
   const startHint = document.getElementById('start-hint') as HTMLDivElement | null;
 
-  // Identity (only to map bracket P1/P2 to room host/guest)
   let me: any = null;
   try { me = await getUserInfo(); } catch { me = null; }
   const myId: number | null = me?.id ?? null;
 
-  // Join room (role + room default names; bracket will override names)
+  // Join room 
   const WAITING = '— waiting —';
   let role: 'left' | 'right' = 'left';
   let hostAlias = 'P1';
@@ -91,13 +89,11 @@ export async function renderOnlineTournamentRoom() {
     }
     if (!res.ok) throw new Error(data?.error || `Join failed (${res.status})`);
     role = data.role;
-    // If I am the room host and this room belongs to a tournament, mark it globally
     try {
       const isRoomHost = (role === 'left');
       if (isRoomHost && lobbyId) {
-        // Defer marking until we actually see gameplay traffic
         (window as any).__activeTournamentHostLobbyId = String(lobbyId);
-        (window as any).__matchInProgress = false; // will flip to true on first state/input
+        (window as any).__matchInProgress = false;
       }
     } catch {}
     hostAlias  = data.host_alias || 'P1';
@@ -113,11 +109,10 @@ export async function renderOnlineTournamentRoom() {
     return;
   }
 
-  // ---- Read tournament snapshot and compute a reliable mapping using USER IDs + ROLE ----
   let match: MatchLite | null = null;
   let bracketP1Alias: string | null = null;
   let bracketP2Alias: string | null = null;
-  let bracketP1Side: 'host' | 'guest' = 'host'; // which room side corresponds to bracket P1
+  let bracketP1Side: 'host' | 'guest' = 'host';
 
   try {
     const res = await fetch(`/api/tournament/${lobbyId}`, { credentials: 'include' });
@@ -131,7 +126,6 @@ export async function renderOnlineTournamentRoom() {
       bracketP1Alias = match?.p1_alias || null;
       bracketP2Alias = match?.p2_alias || null;
 
-      // Determine whether room HOST is bracket P1 or P2 using myId + role
       if (match && myId) {
         if (role === 'left') {
           if (myId === match.p1_user_id) bracketP1Side = 'host';
@@ -141,16 +135,12 @@ export async function renderOnlineTournamentRoom() {
           else if (myId === match.p1_user_id) bracketP1Side = 'guest';
         }
       }
-
-      // Apply bracket aliases to UI immediately (if available)
       const aliasForHost  = (bracketP1Side === 'host') ? (bracketP1Alias || null) : (bracketP2Alias || null);
       const aliasForGuest = (bracketP1Side === 'host') ? (bracketP2Alias || null) : (bracketP1Alias || null);
       if (aliasForHost)  hostAlias  = aliasForHost;
       if (aliasForGuest) guestAlias = aliasForGuest;
     }
   } catch {}
-
-  // ---------- Stable name handling (bracket alias is the source of truth) ----------
   const updateNameplates = () => {
     const s1 = localStorage.getItem('p1Score') || '0';
     const s2 = localStorage.getItem('p2Score') || '0';
@@ -162,10 +152,8 @@ export async function renderOnlineTournamentRoom() {
 
   let guestJoined = guestAlias && guestAlias !== WAITING;
 
-  
-  // New: only allow starting once we receive a server presence event
   let guestConnected: boolean = false;
-const setHostAliasMaybe = (name?: string | null) => {
+  const setHostAliasMaybe = (name?: string | null) => {
     const n = (name || '').trim();
     if (!n || n === WAITING) return;
     hostAlias = n;
@@ -182,7 +170,6 @@ const setHostAliasMaybe = (name?: string | null) => {
     try { window.dispatchEvent(new CustomEvent('pong:setNames', { detail: { right: guestAlias } })); } catch {}
   };
 
-  // Seed UI with (maybe) bracket-driven aliases
   updateNameplates();
   const onScore = () => updateNameplates();
   window.addEventListener('pong:score', onScore as any);
@@ -210,7 +197,6 @@ const setHostAliasMaybe = (name?: string | null) => {
   const wsProto  = location.protocol === 'https:' ? 'wss' : 'ws';
   const __uid    = Number(localStorage.getItem('userId') || '0');
   const ws = new WebSocket(`${wsProto}://${location.host}/ws/game/${roomId}/${(role === 'left') ? 'host' : 'guest'}?lobbyId=${encodeURIComponent(String(lobbyId))}&userId=${__uid}`);
-  // This tab is the authoritative source for "in progress" from the host's perspective.
   (window as any).__matchInProgress = false;
 
   // Clean shutdown
@@ -237,7 +223,7 @@ const setHostAliasMaybe = (name?: string | null) => {
     if (guestConnected && startHint) startHint.textContent = 'Opponent is here. You can start!';
   }
 
-  // Helpers that always prefer bracket alias, not usernames
+  // Helpers to prefer bracket alias to usernames
   const preferBracketForHost = (incoming?: string | null) => {
     const bracketHost = (bracketP1Side === 'host') ? (bracketP1Alias || null) : (bracketP2Alias || null);
     return (bracketHost && bracketHost.trim()) ? bracketHost : (incoming || '');
@@ -271,7 +257,6 @@ const setHostAliasMaybe = (name?: string | null) => {
     }
 
     if (msg.type === 'hello' && msg.alias) {
-      // Back-compat; still favor bracket alias
       if (role === 'left') setGuestAliasMaybe(preferBracketForGuest(String(msg.alias)));
       else setHostAliasMaybe(preferBracketForHost(String(msg.alias)));
       return;
@@ -311,7 +296,6 @@ const setHostAliasMaybe = (name?: string | null) => {
 
   // Announce ourselves using our BRACKET alias (never username)
   ws.addEventListener('open', () => {
-    // Choose my tournament alias from the bracket mapping
     let myBracketAlias: string | null = null;
     if (role === 'left') {
       myBracketAlias = (bracketP1Side === 'host') ? (bracketP1Alias || null) : (bracketP2Alias || null);
@@ -321,12 +305,8 @@ const setHostAliasMaybe = (name?: string | null) => {
     const myAlias = (myBracketAlias && myBracketAlias.trim())
       ? myBracketAlias
       : (localStorage.getItem('display_name') || 'Player');
-
-    // Update my own UI immediately with my alias
     if (role === 'left') setHostAliasMaybe(myAlias);
     else setGuestAliasMaybe(myAlias);
-
-    // Notify opponent/server
     ws.send(JSON.stringify({ type: 'hello', alias: myAlias, role }));
   });
 
@@ -350,8 +330,6 @@ const setHostAliasMaybe = (name?: string | null) => {
       if (Number.isFinite(hostScore) && Number.isFinite(guestScore)) {
         winnerAlias = hostScore > guestScore ? hostAlias : guestAlias;
       }
-
-      // Map winner_slot relative to bracket P1/P2
       let winner_slot: 'p1' | 'p2' | undefined;
       if (Number.isFinite(hostScore) && Number.isFinite(guestScore) && hostScore !== guestScore) {
         const hostWon = hostScore > guestScore;
@@ -437,8 +415,6 @@ const setHostAliasMaybe = (name?: string | null) => {
       netMode: 'guest',
       applyState: (register: any) => { applyStateFromHost = register; },
     });
-
-    // Seed engine with bracket-driven names
     try {
       const detail: any = {};
       if (hostAlias) detail.left = hostAlias;
@@ -449,6 +425,4 @@ const setHostAliasMaybe = (name?: string | null) => {
     } catch {}
   }
 }
-
-// default export
 export default renderOnlineTournamentRoom;

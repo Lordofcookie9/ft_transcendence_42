@@ -6,7 +6,6 @@ const fs = require('fs');
 const fastifyStatic = require('@fastify/static');
 const initDb = require('./db');
 const fastifyJwt = require('@fastify/jwt');
-//const registerUtility = require('./users/utility');
 const registerAuth = require('./users/authentification');
 const registerUsers = require('./users/users');
 const registerSockets = require('./server/socket');

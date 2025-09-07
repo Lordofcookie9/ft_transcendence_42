@@ -1,3 +1,4 @@
+//Check for offline hosts
 module.exports = function registerHostMonitor(fastify) {
   const HOST_SWEEP_INTERVAL_MS = Number(process.env.HOST_SWEEP_INTERVAL_MS || 5000);
   const HOST_GRACE_SECONDS = Number(process.env.HOST_GRACE_SECONDS || 90);
@@ -17,7 +18,7 @@ module.exports = function registerHostMonitor(fastify) {
         const lobbyId = lobby.id;
         const hostId = lobby.host_id;
 
-        // Debounce: don't attempt more than once every 30s per lobby
+        // Debounce:
         const last = lastHandoverAt.get(lobbyId) || 0;
         if (Date.now() - last < 30_000) continue;
 
@@ -26,8 +27,6 @@ module.exports = function registerHostMonitor(fastify) {
           [hostId]
         );
         if (!host) continue;
-
-        // Consider offline if explicitly offline and last_online is older than grace window
         const lastOnlineMs = host.last_online ? Date.parse(host.last_online) : 0;
         const ageSeconds = lastOnlineMs ? Math.floor((Date.now() - lastOnlineMs) / 1000) : Number.MAX_SAFE_INTEGER;
         const offlineLongEnough = host.account_status === 'offline' && ageSeconds > HOST_GRACE_SECONDS;
@@ -53,8 +52,6 @@ module.exports = function registerHostMonitor(fastify) {
             [replacement.user_id, lobbyId]
           );
           lastHandoverAt.set(lobbyId, Date.now());
-
-          // Optional broadcast (frontend is already polling, so this is just a hint)
           try {
             const payload = JSON.stringify({
               type: 'tournament:host_handover',

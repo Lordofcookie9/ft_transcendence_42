@@ -5,8 +5,7 @@ module.exports = function registerInactivityMonitor(fastify) {
 
   async function sweepOnce() {
     try {
-      // Find lobbies that are waiting or started, have no ACTIVE matches,
-      // and whose last_activity_at is older than the threshold.
+      // Clean inactive lobby after timeout
       const rows = await fastify.db.all(
         `SELECT tl.id AS lobby_id
            FROM tournament_lobbies tl
@@ -37,7 +36,6 @@ module.exports = function registerInactivityMonitor(fastify) {
 
   fastify.addHook('onClose', async () => { clearInterval(t); });
 
-  // Manual trigger endpoint for debugging
   fastify.get('/internal/inactivity-monitor/sweep', async () => {
     await sweepOnce();
     return { ok: true };

@@ -15,11 +15,6 @@ async function initDb() {
   try {
     await db.exec('BEGIN TRANSACTION');
 
-    // await db.exec(`DROP TABLE IF EXISTS users;`); // to delete
-    // await db.exec(`DROP TABLE IF EXISTS twofa_codes;`); 
-    // await db.exec(`DROP TABLE IF EXISTS app_codes;`); 
-    // await db.exec(`DROP TABLE IF EXISTS friends;`);
-
     await db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

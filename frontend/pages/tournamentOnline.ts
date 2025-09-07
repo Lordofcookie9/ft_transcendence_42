@@ -49,7 +49,6 @@ type TM = {
 
 let pollTimer: number | undefined;
 
-// Provide a global cleanup hook used by the router to stop lobby polling when navigating away
 ;(window as any).__tournLobbyCleanup = () => {
   try {
     if (pollTimer) {
@@ -172,7 +171,6 @@ function renderWinnerBanner(snap?: LobbySnapshot | null): void {
 }
 
 export async function renderOnlineTournamentLobby() {
-  // Safety: remove any leftover overlay from older builds
   
   try { document.getElementById('tourn-winner-overlay')?.remove(); } catch {}
 
@@ -237,7 +235,6 @@ export async function renderOnlineTournamentLobby() {
     const candidates: TM[] = [];
     for (const round of rounds) {
       for (const m of round) {
-        // Include finished BYE matches (status 'finished' but no room_id) so they propagate too
         if (m.status !== 'pending' && (m.winner_user_id || m.room_id)) candidates.push(m);
       }
     }
@@ -278,8 +275,6 @@ export async function renderOnlineTournamentLobby() {
     
     const startArea = document.getElementById('start-area') as HTMLDivElement | null;
     if (!info || !list || !snap || !snap.ok) return;
-
-    // If the tournament is finished, disable/close abort socket so no redirects can happen
     if (snap.lobby.status === 'finished' && !__tournamentFinished) {
       __tournamentFinished = true;
       try { __abortWS.close(1000, 'tournament_finished'); } catch {}
@@ -301,7 +296,6 @@ export async function renderOnlineTournamentLobby() {
     
     
     if (startArea) startArea.classList.toggle('hidden', snap.lobby.status !== 'waiting');
-// Hide the start area once the tournament is no longer waiting
     if (snap.lobby.status === 'waiting') {
       if (startArea) startArea.classList.remove('hidden');
       if (note) {
@@ -348,7 +342,6 @@ list.innerHTML = snap.participants.map(p => `
       }
       renderBracket(snap);
     } else {
-      // if we are not started, ensure banner cleared
       renderWinnerBanner(snap);
     }
   }

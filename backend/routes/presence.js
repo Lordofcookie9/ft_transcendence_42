@@ -1,8 +1,6 @@
 // routes/presence.js
-// Keeps account_status accurate: heartbeat while tab is open, offline on close,
-// and a sweeper to catch missed heartbeats.
+// Check heartbeat for presence/online status
 module.exports = function registerPresenceRoutes(fastify) {
-  // Heartbeat: mark online + update last_online
   fastify.post(
     '/api/presence/heartbeat',
     { preValidation: [fastify.authenticate] },
@@ -26,13 +24,11 @@ module.exports = function registerPresenceRoutes(fastify) {
     }
   );
 
-  // Explicit offline on tab close/hidden
   fastify.post(
     '/api/presence/offline',
     { preValidation: [fastify.authenticate] },
     async (req, reply) => {
       try {
-        // Do NOT update last_online here; avoid flip-flop on reload.
         await fastify.db.run(
           `UPDATE users
             SET account_status = 'offline'
@@ -47,7 +43,7 @@ module.exports = function registerPresenceRoutes(fastify) {
     }
   );
 
-  // Sweeper: mark users offline if no heartbeat in the last 60s
+  // Mark users offline if no heartbeat in 60s
   const OFFLINE_AFTER_SECONDS = 60;
   const SWEEP_INTERVAL_MS = 15_000;
   const sweep = async () => {

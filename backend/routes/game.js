@@ -28,7 +28,7 @@ module.exports = function registerGameRoutes(fastify) {
       }
     });
 
-    // Join a room; assign role; return role + aliases (prefers tournament aliases when applicable)
+    // Join a room, assign role
     fastify.post('/api/game/room/:id/join', { preValidation: [fastify.authenticate] }, async (req, reply) => {
       try {
         const roomId = Number(req.params.id);
@@ -41,7 +41,7 @@ module.exports = function registerGameRoutes(fastify) {
           [roomId]
         );
         if (!room) return reply.code(404).send({ error: 'room_not_found' });
-        // If this room belongs to a tournament, and that tournament is cancelled, block joining.
+        // If room belongs cancelled tournament block
         try {
           const stat = await fastify.db.get(
             `SELECT tl.status AS lobby_status
@@ -55,10 +55,7 @@ module.exports = function registerGameRoutes(fastify) {
           }
         } catch (e) { req.log && req.log.error && req.log.error({ e, roomId }, 'tournament_status_check_failed'); }
 
-
-        // Attach user to room if needed (for private rooms or if a tournament room wasn't fully wired yet)
         if (!room.host_id) {
-          // Non-tournament (private invite) path: first joiner becomes host
           await fastify.db.run(`UPDATE game_rooms SET host_id = ? WHERE id = ?`, [me, roomId]);
           room.host_id = me;
         } else if (!room.guest_id && Number(room.host_id) !== Number(me)) {
@@ -66,8 +63,8 @@ module.exports = function registerGameRoutes(fastify) {
           room.guest_id = me;
         }
 
-        // My role (engine expects left/right)
-        // When both players are set, mark the tournament match as 'active' so disconnects cancel properly
+        // My role (left/right)
+        // When both players are set, mark the tournament match as 'active'
         try {
           if (room.host_id && room.guest_id) {
             const trow = await fastify.db.get(
@@ -80,14 +77,14 @@ module.exports = function registerGameRoutes(fastify) {
                 [trow.id]
               );
             
-// Bump lobby activity when a match actually starts
-try {
-  const lidRow = await fastify.db.get(`SELECT lobby_id FROM tournament_matches WHERE id = ?`, [trow.id]);
-  if (lidRow && lidRow.lobby_id) {
-    await fastify.db.run(`UPDATE tournament_lobbies SET last_activity_at=CURRENT_TIMESTAMP WHERE id = ?`, [lidRow.lobby_id]);
-  }
-} catch (e) { req.log && req.log.error && req.log.error({ e }, 'bump_last_activity_failed'); }
-}
+            // Bump lobby activity when start match
+            try {
+              const lidRow = await fastify.db.get(`SELECT lobby_id FROM tournament_matches WHERE id = ?`, [trow.id]);
+              if (lidRow && lidRow.lobby_id) {
+                await fastify.db.run(`UPDATE tournament_lobbies SET last_activity_at=CURRENT_TIMESTAMP WHERE id = ?`, [lidRow.lobby_id]);
+              }
+            } catch (e) { req.log && req.log.error && req.log.error({ e }, 'bump_last_activity_failed'); }
+            }
           }
         } catch (e) {
           fastify.log.error({ err: e, roomId }, 'failed to mark tournament match active');
@@ -107,7 +104,7 @@ try {
         let host_alias = hostNameRow?.display_name || 'Player';
         let guest_alias = guestNameRow?.display_name || '— waiting —';
 
-        // If this is a tournament match room, prefer the tournament aliases
+        // If tournament room prefer aliases
         const trow = await fastify.db.get(
           `SELECT tm.lobby_id, tm.p1_user_id, tm.p2_user_id,
                   tp1.alias AS p1_alias, tp2.alias AS p2_alias
@@ -122,7 +119,7 @@ try {
         );
 
         if (trow) {
-          // Map aliases onto the actual room sides
+          // Map aliases
           if (room.host_id) {
             if (Number(room.host_id) === Number(trow.p1_user_id)) host_alias = trow.p1_alias || host_alias;
             else if (Number(room.host_id) === Number(trow.p2_user_id)) host_alias = trow.p2_alias || host_alias;
@@ -194,7 +191,6 @@ try {
           [room_id]
         );
         if (!room) return reply.code(404).send({ error: 'room_not_found' });
-        // If this room belongs to a tournament, and that tournament is cancelled, block joining.
         try {
           const stat = await fastify.db.get(
             `SELECT tl.status AS lobby_status
@@ -216,8 +212,6 @@ try {
 
         const winner_id = i_won ? me : (room.host_id === me ? room.guest_id : room.host_id);
         const loser_id  = i_won ? (room.host_id === me ? room.guest_id : room.host_id) : me;
-
-        // Finish exactly once to avoid double-counting if both players post
         await fastify.db.run('BEGIN');
         const upd = await fastify.db.run(
           `UPDATE game_rooms SET status='finished' WHERE id=? AND status!='finished'`,

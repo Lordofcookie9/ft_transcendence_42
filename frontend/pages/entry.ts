@@ -72,6 +72,3 @@ export function renderEntryPage() {
 
   document.getElementById('logout')?.addEventListener('click', logout);
 }
-
-
-// --- Main Homepage ---

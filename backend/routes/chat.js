@@ -8,10 +8,9 @@ module.exports = function registerChatRoutes(fastify) {
         currentUserId = authorized.id;
       } catch {}
 
-      // Use SQLite's UTC now; we'll format all returned timestamps as ISO UTC (…T…Z)
+      // Correcting time for match history
       const twoHoursAgoExpr = `datetime('now','-2 hours')`;
 
-      // Unauthenticated: public chat only, ISO timestamps
       if (!currentUserId) {
         const publicMessages = await fastify.db.all(`
           SELECT 
@@ -27,7 +26,6 @@ module.exports = function registerChatRoutes(fastify) {
         return publicMessages;
       }
 
-      // Authenticated: public + private (from/to me), all with ISO UTC timestamps
       const rows = await fastify.db.all(
         `
         SELECT alias, message, timestamp, user_id

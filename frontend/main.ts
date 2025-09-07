@@ -4,9 +4,6 @@ import { renderEntryPage, renderHome, updateCounter, updateChatBox } from './pag
 import { route, handleLocation } from './router.js';
 import { connectGlobalWS } from './wsGlobal.js';
 
-
-//const app = document.getElementById('app');
-
 console.log("Main loaded ✅");
 connectGlobalWS();
 
@@ -14,7 +11,6 @@ function isPageReload(): boolean {
   try {
     const nav = performance.getEntriesByType('navigation') as any[];
     if (nav && nav[0]) return nav[0].type === 'reload';
-    // Fallback (deprecated API, but widely available)
     return (performance as any)?.navigation?.type === 1;
   } catch {
     return false;
@@ -25,7 +21,6 @@ if (isPageReload()) {
   const ip = localStorage.getItem('game.inProgress');
   if (ip === 'local' || ip === 'tournament') {
     alert("please don't refresh during the game, you will be brought to home");
-    // We *don’t* destroy the tournament state; just send them home.
     route('/home');
   }
 }
@@ -86,39 +81,17 @@ window.addEventListener('popstate', () => {
 	renderHome();
 };
 
-// window.addEventListener('beforeunload', () => {
-//   const userId = localStorage.getItem('userId');
-//   if (sessionStorage.getItem('isReloading')) {
-//     return;
-//   }
-//
-//   if (userId) {
-//     const data = new FormData();
-//     data.append('userId', userId);
-//
-//     navigator.sendBeacon('/api/logout', data);
-//   }
-//
-//   localStorage.removeItem('token');
-//   localStorage.removeItem('userId');
-//   localStorage.removeItem('alias');
-// });
-
-
-// --- Initialize ---
 handleLocation();
 
 // Global bindings
 (window as any).route = route;
 (window as any).renderUsers = renderUserList;
 
-// Block visitors from posting; backend derives alias from JWT
+// Block visitors from posting
 (window as any).submitMessage = async function () {
   const input = document.getElementById('messageInput') as HTMLInputElement | null;
   const message = input?.value?.trim() ?? '';
   if (!message) return;
-
-  // Client-side guard (nice UX; backend still enforces)
   if (message.length > 1000) {
     alert('Message must be under 1000 characters long');
     return;
@@ -133,7 +106,6 @@ handleLocation();
     });
 
     if (!res.ok) {
-      // Try JSON -> text -> fallback message
       let msg = `Error: ${res.status} ${res.statusText}`;
       try {
         const ct = res.headers.get('content-type') || '';
@@ -150,7 +122,6 @@ handleLocation();
 
       if (res.status === 401) msg = "Please log in to use the chat.";
       if (res.status === 403 && msg === `Error: 403 ${res.statusText}`) {
-        // explicit fallback for your length rule if server didn't include a body
         msg = "Message must be under 1000 characters long";
       }
 
@@ -231,15 +202,14 @@ function createTournament(aliases: string[]): TournamentState {
   }
 
   const st: TournamentState = { participants: players, rounds, current: { round: 0, index: 0 }, active: true };
-  propagateByes(st); // Only processes round-0 byes per our earlier fix
+  propagateByes(st);
   return st;
 }
 
 function propagateByes(st: TournamentState) {
-  // Only auto-advance BYES in the FIRST round to avoid premature champions.
   if (st.rounds.length === 0) return;
 
-  const r = 0; // first round only
+  const r = 0;
   for (let m = 0; m < st.rounds[r].length; m++) {
     const match = st.rounds[r][m];
     if (!match.winner) {
@@ -252,8 +222,6 @@ function propagateByes(st: TournamentState) {
       }
     }
   }
-
-  // Point to the first playable match (both players set, no winner)
   for (let r2 = 0; r2 < st.rounds.length; r2++) {
     for (let i2 = 0; i2 < st.rounds[r2].length; i2++) {
       const mt = st.rounds[r2][i2];
@@ -263,8 +231,6 @@ function propagateByes(st: TournamentState) {
       }
     }
   }
-
-  // Only finished if the final actually has a winner set.
   st.active = !Boolean(st.rounds[st.rounds.length - 1]?.[0]?.winner);
 }
 
@@ -273,7 +239,6 @@ function loadT(): TournamentState | null { try { const raw = localStorage.getIte
 function getChampion(st: TournamentState | null) { return st?.rounds[st.rounds.length-1]?.[0]?.winner || null; }
 
 function ensureTournamentUI() {
-  // append tournament state UI under the pong game if not present
   const root = document.getElementById('pong-root');
   if (!root) return;
   let holder = document.getElementById('tournament-state-holder');
@@ -352,7 +317,6 @@ function generateBracketPre(st: TournamentState): string {
     </section>
   `).join("");
 
-  // Vertical layout output
   return `<div class="space-y-4">${roundsHTML}</div>`;
 }
 
@@ -407,12 +371,10 @@ function generateBracketPre(st: TournamentState): string {
       if (index % 2 === 0) nxt.p1 = winner; else nxt.p2 = winner;
     }
     // advance pointer to next playable
-    // scan same round
     for (let m=index+1; m<st.rounds[round].length; m++){
       const mt = st.rounds[round][m];
       if (mt.p1 && mt.p2 && !mt.winner) { st.current = { round, index: m }; saveT(st); (window as any).updateTournamentStateDOM?.(); return this.startNextMatch(); }
     }
-    // scan subsequent rounds
     for (let r=round+1; r<st.rounds.length; r++){
       for (let m=0; m<st.rounds[r].length; m++){
         const mt = st.rounds[r][m];
@@ -484,5 +446,5 @@ window.addEventListener('pong:gameend', (ev: any) => {
 };
 
 
-// Hook: pages.ts calls this when a local game ends
+// Hook: pages.ts calls local game ends
 (window as any).__onLocalGameEnd = (winner: string) => { (window as any).tournament?.onGameEnd?.(winner); };

@@ -105,7 +105,6 @@ module.exports = function registerSockets(fastify) {
   }
 
   async function broadcastTournamentAbort(lobbyId, reason = 'player_disconnected') {
-    // 1) Mark tournament cancelled
     try {
       await fastify.db.run(
         `UPDATE tournament_lobbies
@@ -130,15 +129,11 @@ module.exports = function registerSockets(fastify) {
 
     const sentSockets = new Set();
     let sent = 0;
-
-    // 2) Notify anyone connected under this lobby (lobby + match pages)
     const lobbySet = lobbyIndex.get(String(lobbyId));
     if (lobbySet && lobbySet.size) {
       for (const ws of lobbySet) { safeSend(ws, payload); sent++; sentSockets.add(ws); }
       for (const ws of lobbySet) { try { if (ws.readyState === WS_OPEN) ws.close(1000); } catch {} }
     }
-
-    // 3) Also notify all participants by userId (covers the leaver if they already switched pages)
     try {
       const rows = await fastify.db.all(
         `SELECT user_id FROM tournament_participants WHERE lobby_id = ?`,
@@ -164,19 +159,16 @@ module.exports = function registerSockets(fastify) {
   fastify.decorate('broadcastTournamentAbort', broadcastTournamentAbort);
   fastify.decorate('destroyTournamentLobby', destroyTournamentLobby);
 
-  // Notify both sides that the opponent is present (used right after a connect)
   function maybeNotifyBothPresent(roomId) {
     const entry = liveRooms.get(roomId);
     if (!entry || !entry.host || !entry.guest) return;
 
-    // host sees guest
     safeSend(entry.host, {
       type: 'opponent:joined',
       role: 'guest',
       alias: entry.guestAlias || null
     });
 
-    // guest sees host
     safeSend(entry.guest, {
       type: 'opponent:joined',
       role: 'host',
@@ -297,38 +289,30 @@ module.exports = function registerSockets(fastify) {
 
     if (role === 'host') entry.host = ws;
     else entry.guest = ws;
-
-    // If both sides present now, immediately inform each side so UI can start
     maybeNotifyBothPresent(roomId);
 
-    // -------- message relay (kept minimal like your current code) --------
     ws.on('message', (data) => {
       let msg; try { msg = JSON.parse(String(data)); } catch { return; }
 
-      // relay input/state/chat to the opposite side
       if (msg.type === 'input' || msg.type === 'state' || msg.type === 'chat') {
         const target = (role === 'host') ? entry.guest : entry.host;
         safeSend(target, msg);
         return;
       }
 
-      // presence hello (alias)
+      // presence hello
       if (msg.type === 'hello' && msg.alias) {
         if (role === 'host') entry.hostAlias = msg.alias;
         else entry.guestAlias = msg.alias;
-
-        // Forward hello to the opponent as before
         const target = (role === 'host') ? entry.guest : entry.host;
         safeSend(target, { type: 'hello', alias: msg.alias, role });
-
-        // If the other side is already present, also (re)send opponent:joined with alias
         maybeNotifyBothPresent(roomId);
         return;
       }
 
       // host broadcasting gameover
       if (msg.type === 'gameover' && role === 'host') {
-        entry.gameOver = true; // <-- mark finished so host leaving now won't cancel the tournament
+        entry.gameOver = true; 
         safeSend(entry.guest, msg);
         return;
       }
@@ -350,9 +334,7 @@ module.exports = function registerSockets(fastify) {
       if (wasGuest) cur.guest = null;
 
       try {
-        // Decide paths first; only notify the remaining peer when we know we won't hard-cancel.
         if (wasHost) {
-          // Is this a tournament room?
           let tournamentRow = null;
           try {
             tournamentRow = await fastify.db.get(
@@ -366,8 +348,6 @@ module.exports = function registerSockets(fastify) {
             fastify.log.error({ e, roomId }, 'tournament lookup on host close failed');
           }
           if (tournamentRow && tournamentRow.lobby_id) {
-            // If DB still shows "active" with no winner and we haven't seen gameOver yet,
-            // wait a short grace to allow 'gameover' or the /complete call to land.
             let row2 = tournamentRow;
             const likelyActive = String(tournamentRow.status) === 'active'
               && (tournamentRow.winner_user_id == null)
@@ -388,7 +368,6 @@ module.exports = function registerSockets(fastify) {
                 fastify.log.error({ e, roomId }, 'recheck tournament match after grace failed');
               }
             }
-            // Cancel ONLY if match is in-progress (active & no winner) AND we haven't seen gameOver yet
             const inProgress =
               String(row2?.status) === 'active' &&
               (row2?.winner_user_id == null) &&
@@ -399,7 +378,6 @@ module.exports = function registerSockets(fastify) {
               await broadcastTournamentAbort(lid, 'host_left_match');
               fastify.log.info({ roomId, lobbyId: lid }, 'tournament aborted due to host leaving in-progress match');
             } else {
-              // Match is over (or just finished) — DO NOT cancel.
               if (cur.guest) notifyLeft(cur.guest, 'host', cur);
               fastify.log.info(
                 { roomId, matchStatus: tournamentRow?.status, winner: tournamentRow?.winner_user_id, gameOverFlag: cur.gameOver },
@@ -407,7 +385,6 @@ module.exports = function registerSockets(fastify) {
               );
             }
           } else {
-            // ---- Private 1v1: notify guest and kick home ----
             if (cur.guest && cur.guest.readyState === WS_OPEN) {
               safeSend(cur.guest, { type: 'info', message: 'host left. Going back home' });
               try { cur.guest.close(1000); } catch {}
@@ -431,8 +408,6 @@ module.exports = function registerSockets(fastify) {
       }
     });
   }
-
-  // Intercept HTTP Upgrade and hand it to ws only for /ws/*
   fastify.server.on('upgrade', (request, socket, head) => {
     if (!request.url || !request.url.startsWith('/ws/')) return;
     wss.handleUpgrade(request, socket, head, (ws) => {

@@ -108,33 +108,20 @@ function removeThisTab(): number {
 export function startPresenceHeartbeat() {
   if (__presenceStarted) return;
   __presenceStarted = true;
-
-  // register this tab
   const count = addThisTab();
-  // if first tab, announce online immediately
   if (count === 1) sendOnline();
-
-  // heartbeat every 25s while visible (server sweeper uses 60s; see below)
   if (!__presenceTimer) {
     sendOnline();
     __presenceTimer = window.setInterval(() => {
       if (document.visibilityState === 'visible') sendOnline();
     }, 25_000);
   }
-
-  // On page restored from BFCache, ping again
   window.addEventListener('pageshow', (_e) => sendOnline());
-
-  // Only mark offline when the LAST tab closes
   const onClose = () => {
     const remaining = removeThisTab();
   };
-
-  // Use pagehide (fires on tab close and mobile background), plus unload fallback
   window.addEventListener('pagehide', onClose, { capture: true });
   window.addEventListener('unload', onClose, { capture: true });
-
-  // Don’t mark offline on simple tab switches; we no longer do that on visibilitychange
 }
 
 export async function getJSON<T = any>(url: string, opts?: { silent404?: boolean }) {
@@ -147,12 +134,10 @@ export async function getJSON<T = any>(url: string, opts?: { silent404?: boolean
   return res.json() as Promise<T>;
 }
 
-// Optional: guard a one-time toast
+
 export function toastOnce(key: string, message: string) {
   const k = `__once_${key}`;
-  // @ts-ignore
   if ((window as any)[k]) return;
-  // @ts-ignore
   (window as any)[k] = true;
   try { alert(message); } catch {}
 }
@@ -164,7 +149,6 @@ export function showToast(message: string, kind: ToastKind = 'info', opts: { tim
   if (!root) {
     root = document.createElement('div');
     root.id = 'toast-root';
-    // Bottom-right stack
     root.className = 'fixed bottom-4 right-4 z-[100] flex flex-col-reverse gap-2 pointer-events-none';
     document.body.appendChild(root);
   }
@@ -193,7 +177,6 @@ export function showToast(message: string, kind: ToastKind = 'info', opts: { tim
   wrap.appendChild(closeBtn);
   el.appendChild(wrap);
 
-  // For bottom stack newest at bottom, append then reorder using flex-col-reverse
   root.appendChild(el);
   const timeout = opts.timeout ?? 4000;
   let timeoutId: number | null = window.setTimeout(() => dismiss(), timeout);

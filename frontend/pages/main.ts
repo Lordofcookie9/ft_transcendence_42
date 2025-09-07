@@ -1,7 +1,5 @@
-import { getUserInfo, logout } from '../users/userManagement.js';
-import { setContent, escapeHtml } from '../utility.js';
-import { initPongGame } from "../pong/pong.js";
-import { route } from '../router.js';
+import { setContent } from '../utility.js';
+
 
 export function renderMain() {
   const alias = localStorage.getItem("alias") || "Guest";
@@ -9,4 +7,3 @@ export function renderMain() {
 }
 
 
-// --- Chat ---
