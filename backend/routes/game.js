@@ -201,12 +201,12 @@ try {
                FROM tournament_matches tm
                JOIN tournament_lobbies tl ON tl.id = tm.lobby_id
               WHERE tm.room_id = ?
-              LIMIT 1`, [roomId]
+              LIMIT 1`, [room_id]
           );
           if (stat && String(stat.lobby_status) === 'cancelled') {
             return reply.code(410).send({ error: 'tournament_cancelled' });
           }
-        } catch (e) { req.log && req.log.error && req.log.error({ e, roomId }, 'tournament_status_check_failed'); }
+        } catch (e) { request.log && request.log.error && request.log.error({ e, room_id }, 'tournament_status_check_failed'); }
 
         if (room.mode !== 'private_1v1') return reply.send({ ok: true, ignored: 'not_private_1v1' });
         if (room.host_id !== me && room.guest_id !== me) {
