@@ -572,13 +572,23 @@ export async function renderPrivate1v1() {
     }
 
     if (msg.type === 'gameover') {
+      const s = msg?.detail?.scores;
+      if (s && Number.isFinite(s.left) && Number.isFinite(s.right)) {
+        try {
+          localStorage.setItem('p1Score', String(s.left));
+          localStorage.setItem('p2Score', String(s.right));
+        } catch {}
+      }
       hidePrestart();
       updateNameplates();
+      if (role === 'left') {
+        reportResult();
+      }
       showEndOverlay(msg.detail);
-      reportResult();
       if (resendTimer != null) { clearInterval(resendTimer); resendTimer = null; }
       return;
     }
+
   });
 
   ws.addEventListener('open', () => {
