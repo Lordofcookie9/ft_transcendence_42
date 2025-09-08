@@ -287,22 +287,21 @@ export async function renderLocalVsAI() {
   const s2 = localStorage.getItem("p2Score") || "0";
 
   setContent(`
-    <div class="relative text center mt-10">
+    <div class="relative text-center mt-10">
       <a href="/home" onclick="route('/home')" class="absolute top-0 left-0 ml-4 bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 text-sm">← Home</a>
       <h1 class="text-3xl font-bold mb-4">Local VS AI</h1>
 
       <div class="flex justify-between items-center max-w-6xl mx-auto mb-4 px-8 text-xl font-semibold text-white">
         <div id="player1-info" class="text-left w-1/3">${escapeHtml(leftName)}: ${escapeHtml(s1)}</div>
         <button id="replay-btn" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded">Replay</button>
+         <p class="mt-2 text-sm text-gray-400">
+          Controls: left player use <strong>W,S</strong> — right player use <strong>Up</strong> and <strong>Down</strong> arrows
+         </p>
         <div id="player2-info" class="text-right w-1/3">${escapeHtml(rightName)}: ${escapeHtml(s2)}</div>
       </div>
 
       <div class="flex justify-center">
         <div id="pong-root" class="border-2 border-white bg-black"></div>
-      </div>
-
-      <div class="mt-6 text-gray-300 text-sm">
-        <p><strong>Controls:</strong> You (right paddle) — ArrowUp / ArrowDown. The left paddle is controlled by the AI.</p>
       </div>
     </div>
   `);

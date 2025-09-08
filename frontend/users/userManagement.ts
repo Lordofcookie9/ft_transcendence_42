@@ -561,7 +561,7 @@ export async function renderUserProfile(userId: number) {
             <div class="flex flex-wrap gap-2">
               <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded text-sm" onclick="window.cancelAction(${JSON.stringify(user.id)})">Unblock</button>
             </div>`;
-        } else {
+        } else if (!user.friends_status) {
           friendButtons = `
             <div class="flex flex-wrap gap-2">
               <button class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm" onclick="window.addFriend(${JSON.stringify(user.id)})">Add Friend</button>
