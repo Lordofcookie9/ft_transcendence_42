@@ -1,14 +1,19 @@
 export function renderLegal() {
     const el = document.getElementById('app');
     if (!el) return;
-  el.innerHTML = `
-  <div class="prose prose-invert max-w-3xl mx-auto p-6 text-sm">
-   <div class="mb-4"><a href="/home" onclick="route('/home');return false;" class="text-indigo-400 hover:text-white text-xs">← Home</a></div>
-     <h1 class="text-xl font-bold">Legal Mentions</h1>
-     <p>Publisher: rrichard</p>
-     <p>Host: rrichard</p>
-     <p>Contact: rrichard@student.42.fr</p>
-    </div>`;
+	el.innerHTML = `
+	<div class="prose prose-invert max-w-3xl mx-auto p-6 text-sm">
+		<div class="mb-4"><a href="/home" onclick="route('/home');return false;" class="text-indigo-400 hover:text-white text-xs">← Home</a></div>
+		<h1 class="text-xl font-bold">Legal Mentions</h1>
+		<p><strong>Publisher:</strong> Robin Richard Canavaggio, Judith Meyer, Yulin Zhuang</p>
+		<p><strong>Director of Publication:</strong> Judith Meyer</p>
+		<p><strong>Contact:</strong> rrichard@student.42.fr</p>
+		<p><strong>Hosting Provider:</strong> 42 - Association à but non lucratif, 96 boulevard Bessières, 75017 Paris France, www.42.fr</p>
+		<p><strong>Intellectual Property:</strong> All content (text, code, images) is the property of the site operators unless otherwise stated. Any reproduction or use without permission is prohibited.</p>
+		<p><strong>Liability:</strong> The publisher is not responsible for external links or content posted by users.</p>
+		<p><strong>Data Protection:</strong> Personal data is processed in accordance with the GDPR. See our <a href="/privacy" onclick="route('/privacy');return false;">Privacy Policy</a>.</p>
+		<p class="mt-6 text-xs text-gray-400">Last update: ${new Date().toISOString().split('T')[0]}</p>
+	</div>`;
 }
 
 export function renderPrivacy() {
