@@ -72,7 +72,7 @@ export async function renderRegister() {
 				<button id="oauth-register"
 					class="flex items-center justify-center gap-3 border border-gray-300 rounded px-4 py-2 bg-white text-gray-900 hover:bg-gray-100 transition-colors shadow">
 					<img src="/42_Logo.svg" alt="42" class="w-6 h-6" />
-					<span class="font-medium">Register with 42</span>
+					<span class="font-medium">Connect with 42</span>
 				</button>
 				<button type="button" onclick="route('/login')"
 					class="bg-gray-700 hover:bg-gray-600 transition-colors text-white font-medium px-4 py-2 rounded text-sm">
@@ -292,7 +292,7 @@ export function renderLogin() {
 		<div class="mt-2 flex flex-col gap-2">
 			<button id="oauth" class="flex items-center justify-center gap-3 border border-gray-400 rounded px-4 py-2 hover:bg-gray-100 text-black bg-white">
 				<img src="/42_Logo.svg" alt="42" class="w-6 h-6" />
-				<span class="font-medium">Login with 42</span>
+				<span class="font-medium">Connect with 42</span>
 			</button>
 		</div>
 	</div>`);
