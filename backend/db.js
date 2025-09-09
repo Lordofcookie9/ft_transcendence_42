@@ -22,6 +22,7 @@ async function initDb() {
         password_hash TEXT DEFAULT NULL,
         display_name TEXT UNIQUE NOT NULL,
         avatar_url TEXT DEFAULT './uploads/default-avatar.png',
+        anonymized INTEGER DEFAULT 0,
 
         twofa_method TEXT DEFAULT NULL CHECK (twofa_method IN ('app', 'email') OR twofa_method IS NULL),
         twofa_secret TEXT,
